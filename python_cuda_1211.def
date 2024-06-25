@@ -1,0 +1,194 @@
+Bootstrap: docker
+#From: nvcr.io/nvidia/cuda:10.1-cudnn7-devel-ubuntu18.04    # A100 requires CUDA >= 11.4
+From: nvcr.io/nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
+Stage: spython-base
+
+%files
+/scratch/bcga/cti/code/BrainSec/install/requirements.txt /install_tmp/
+/scratch/bcga/cti/code/BrainSec/bashrc /install_tmp/
+%post
+#FROM tensorflow/tensorflow:nightly-gpu-jupyter
+#FROM tensorflow/tensorflow:2.1.0-gpu-py3-jupyter
+
+groupadd -g 93 slurm
+groupadd -g 988 munge
+adduser --system --home /var/lib/slurm --shell /sbin/nologin --uid 93 --ingroup slurm slurm
+adduser --system --home /var/run/munge --shell /sbin/nologin --uid 992 --ingroup munge munge
+
+export TZ=US/Eastern
+echo "export TZ=US/Eastern" >> $APPTAINER_ENVIRONMENT
+rm -f /etc/localtime && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+apt-get update && apt-get install -y tzdata \
+&& apt-get upgrade -y \
+&& apt-get clean \
+&& rm -rf /var/lib/apt/lists/*
+
+#########################################
+# SECTION 1: Essentials                 #
+#########################################
+apt-get update && apt-get install -y --no-install-recommends \
+vim git curl wget yasm cmake unzip pkg-config \
+checkinstall build-essential ca-certificates \
+software-properties-common apt-utils bash-completion \
+&& apt-get upgrade -y \
+&& apt-get clean \
+&& rm -rf /var/lib/apt/lists/*
+
+#########################################
+# SECTION 2: Setup Image Libraries      #
+#########################################
+apt-get update && apt-get install -y --no-install-recommends \
+zlib1g-dev libjpeg-dev libpng-dev xvfb ffmpeg xorg-dev \
+xorg-dev libboost-all-dev libsdl2-dev swig \
+libblas-dev liblapack-dev \
+libopenblas-base libatlas-base-dev graphviz \
+libvips \
+&& apt-get upgrade -y \
+&& apt-get clean \
+&& rm -rf /var/lib/apt/lists/*
+
+# libffi-dev: interface that allows code written in one language to call code written in another language.
+apt-get update && apt-get install -y --no-install-recommends \
+libssl-dev libffi-dev \
+libatlas-base-dev gfortran \
+software-properties-common \
+&& rm -rf /var/lib/apt/lists/* \
+&& apt upgrade -y
+
+#########################################
+# SECTION 3: Install Python Libraries   #
+#########################################
+apt-get update && apt-get install -y \
+python2 python3 python3-dev \
+python3-pip python3-venv nano less libgl1 libgl1-mesa-glx libglib2.0-0 libsm6 libxrender1 libxext6 \
+&& apt-get clean \
+&& rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+#python3 -m ensurepip
+python3 -m pip install --upgrade pip
+
+# Install Python libraries
+pip3 install -U -r /install_tmp/requirements.txt
+
+# Install jupyter notebook extensions (code folding)
+pip3 install jupyter_contrib_nbextensions \
+&& jupyter contrib nbextension install \
+&& pip3 install jupyter_nbextensions_configurator \
+&& jupyter nbextensions_configurator enable
+
+# Jupyter runtime folder
+mkdir /.local && chmod a+rwx /.local
+
+# Install argcomplete for auto tab completing argparse in Python
+pip3 install argcomplete \
+&& activate-global-python-argcomplete
+
+######################################
+# SECTION 4: OpenCV packages         #
+######################################
+OPENCV_PATH=/usr/local/share/opencv
+OPENCV_CONTRIB_PATH=/usr/local/share/opencv_contrib
+#OPENCV_VERSION=4.3.0   # CUDA 12 requires 4.7.0
+OPENCV_VERSION=4.8.0
+
+apt-get update && apt-get -y install \
+libglew-dev \
+libjpeg-dev libpng-dev libtiff-dev \
+libavcodec-dev libavformat-dev libswscale-dev libavresample-dev \
+libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+libxvidcore-dev x264 libx264-dev libfaac-dev libmp3lame-dev libtheora-dev \
+libopencore-amrnb-dev libopencore-amrwb-dev \
+libdc1394-22 libdc1394-22-dev libxine2-dev libv4l-dev v4l-utils \
+libgtk-3-dev \
+python3-dev python3-testresources \
+libtbb-dev \
+libatlas-base-dev gfortran \
+libprotobuf-dev protobuf-compiler \
+libgoogle-glog-dev libgflags-dev \
+libgphoto2-dev libeigen3-dev libhdf5-dev doxygen \
+libegl1-mesa-dev \
+libwayland-dev \
+libxkbcommon-dev \
+wayland-protocols \
+&& apt-get clean \
+&& rm -rf /var/lib/apt/lists/*
+
+echo -e "Install OPENCV Contrib\n\n" && \
+wget -O opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/${OPENCV_VERSION}.zip && \
+unzip opencv_contrib.zip && \
+mv opencv_contrib-* $OPENCV_CONTRIB_PATH && \
+rm opencv_contrib.zip
+
+echo -e "Install OPENCV \n\n" && \
+wget -O opencv.zip https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip && \
+unzip opencv.zip && \
+mv opencv-* $OPENCV_PATH && \
+rm opencv.zip
+
+echo -e "Make / Build OPENCV\n\n" && \
+mkdir -p $OPENCV_PATH/build && \
+cd $OPENCV_PATH/build && \
+cmake -D CMAKE_BUILD_TYPE=RELEASE \
+-D CMAKE_INSTALL_PREFIX=${OPENCV_PATH} \
+-D OPENCV_EXTRA_MODULES_PATH=${OPENCV_CONTRIB_PATH}/modules \
+-D WITH_CUDA=ON \
+-D CUDA_ARCH_BIN=8.0 \
+-D CUDA_ARCH_PTX="" \
+-D WITH_CUDNN=ON \
+-D WITH_CUBLAS=ON \
+-D CUDA_FAST_MATH=ON \
+-D ENABLE_FAST_MATH=ON \
+-D WITH_TBB=ON \
+-D WITH_V4L=ON \
+-D WITH_QT=OFF \
+-D WITH_OPENGL=ON \
+-D BUILD_opencv_cudacodec=ON \
+-D INSTALL_C_EXAMPLES=OFF \
+-D INSTALL_PYTHON_EXAMPLES=OFF \
+-D BUILD_opencv_python2=OFF \
+-D BUILD_NEW_PYTHON_SUPPORT=ON \
+-D PYTHON3_EXECUTABLE=$(which python3) \
+-D PYTHON3_INCLUDE_DIR=$(python3 -c "from distutils.sysconfig import get_python_inc; print(get_python_inc())") \
+-D OPENCV_PYTHON3_INSTALL_PATH=$(python3 -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())") \
+-D BUILD_EXAMPLES=OFF \
+.. && \
+make -j$(nproc) && make install
+
+OpenCV_DIR=/usr/local/share/opencv/build
+
+######################################
+# SECTION 5: Add running instruction #
+######################################
+# Set working directory to be repository directory
+REPOPATH=/BrainSeg
+mkdir -p ${REPOPATH}
+cd ${REPOPATH}
+
+# Append the custom bashrc
+cat /install_tmp/bashrc > /etc/bash.bashrc
+
+# For Tensorboard profiler
+LD_LIBRARY_PATH=/usr/local/cuda/extras/CUPTI/lib64:${LD_LIBRARY_PATH}
+
+# Setup locale language config
+apt-get update && apt-get -y install locales && \
+locale-gen "en_US.UTF-8" && \
+update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+LANG=en_US.UTF-8
+LANGUAGE=en_US:en
+LC_ALL=en_US.UTF-8
+%environment
+export OpenCV_DIR=/usr/local/share/opencv/build
+export REPOPATH=/BrainSeg
+export LD_LIBRARY_PATH=/usr/local/cuda/extras/CUPTI/lib64:${LD_LIBRARY_PATH}
+export LANG=en_US.UTF-8
+export LANGUAGE=en_US:en
+export LC_ALL=en_US.UTF-8
+export TZ=US/Eastern
+%runscript
+cd ${REPOPATH}
+exec /bin/bash "$@"
+%startscript
+cd ${REPOPATH}
+exec /bin/bash "$@"
