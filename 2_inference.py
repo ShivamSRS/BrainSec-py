@@ -4,8 +4,13 @@
 # ### 2 Main Pipeline for Inference
 # 
 
+
 import os
 import glob
+import sys
+sys.path.append("/cache/plaquebox-paper/")
+# sys.path.append("/cache/plaquebox-paper/utils")
+# sys.path.append("/cache/plaquebox-paper/")
 
 import torch
 torch.manual_seed(123456789)
@@ -115,13 +120,14 @@ def saveBrainSegImage(nums, save_dir) :
     
 def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR):
     img_size = 1536
-    stride = 16
-    batch_size = 96 
+    stride = 32
+    batch_size = 48 
     num_workers = 16
 
-    norm = np.load('utils/normalization.npy', allow_pickle=True).item() # brainseg
+    # norm = np.load('utils/normalization.npy', allow_pickle=True).item() # brainseg
+    norm = np.load('/cache/plaquebox-paper/utils/normalization.npy', allow_pickle=True).item()
     normalize = transforms.Normalize(norm['mean'], norm['std'])
-
+    
     to_tensor = transforms.ToTensor()
     
     # Retrieve Files
@@ -134,24 +140,28 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
     use_gpu = torch.cuda.is_available()
     
     # instatiate the model
-    plaq_model = torch.load(MODEL_PLAQ, map_location=lambda storage, loc: storage)
+    # plaq_model = torch.load(MODEL_PLAQ, map_location=lambda storage, loc: storage)
     seg_model = torch.load(MODEL_SEG, map_location=lambda storage, loc: storage)
     
     if use_gpu:
         seg_model = seg_model.cuda() # Segmentation
-        plaq_model = plaq_model.module.cuda() # Plaquebox-paper
+        # plaq_model = plaq_model.module.cuda() # Plaquebox-paper
     else:
         seg_model = seg_model
-        plaq_model = plaq_model.module
+        # plaq_model = plaq_model.module
 
     # Inference Loop:
 
     for filename in filenames[:]:
         print("Now processing: ", filename)
+    
+
         
         # Retrieve Files
         TILE_DIR = IMG_DIR+'{}/0/'.format(filename)
-
+        if os.path.isdir(TILE_DIR) is False:
+            print(TILE_DIR, " not a directory")
+            continue
         imgs = []
         for target in sorted(os.listdir(TILE_DIR)):
             d = os.path.join(TILE_DIR, target)
@@ -163,6 +173,45 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
                     if fname.endswith('.jpg'):
                         path = os.path.join(root, fname)
                         imgs.append(path)
+        
+        # Imports
+        import sys
+        sys.path.append('/cache/Shivam/yolo-braak-stage/')  # mamke nft_helpers module available
+        sys.path.append('/cache/Shivam/yolo-braak-stage/nft_helpers/')
+        import matplotlib.pyplot as plt
+        import cv2 as cv
+        import large_image
+
+        # Parameters
+        # ----------
+        # Choose weights to load on YOLO model to predict. The best.pt file in the repo is the best MAL weights from
+        # project.
+        weights = '/cache/Shivam/yolo-braak-stage/best.pt'
+
+        # Select an ROI image to test. Note that some ROIs have no NFTs to predict so might return no predictions.
+        roi_fp = '/cache/Shivam/BrainSec-py/data_ONCE/norm_tiles/1-271-Temporal_AT8.czi/0/10/13.jpg'
+
+
+        # For WSI we speed tiling by using parallel processing in Python 
+        # This parameter sets the number of processes to use, don't set this higher than the number
+        # cores your machine otherwise it will be detrimental.
+        nproc = 10
+
+        device = None  # options, "cpu", None (all GPUs available), or specific ids (e.g. "0,1")
+
+        # Thresholds:
+        iou_thr = 0.4  # non-max-suppresion IoU
+        contained_thr = 0.7  # removing small boxes mostly in larger ones
+        conf_thr = 0.5  # remove predictions of low confidence
+        mask_thr = 0.25  # ignore tiles that are mostly not in ROI or tissue mask
+
+        # from nft_helpers import extract_tissue_mask
+        from nft_helpers.utils import imread
+        from nft_helpers.yolov5 import roi_inference
+        from nft_helpers import extract_tissue_mask
+
+        save_fp = 'results_jc/sample-roi-label.txt'
+
 
         rows = [int(image.split('/')[-2]) for image in imgs]
         row_nums = max(rows) + 1
@@ -171,69 +220,178 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
         
         # Initialize outputs accordingly:
         heatmap_res = img_size // stride
-        plaque_output = np.zeros((3, heatmap_res*row_nums, heatmap_res*col_nums))
+        # print(heatmap_res,"heatmao size",row_nums,col_nums)
+
+        def parse_annotation(annotation, stride_large=960):
+            """
+            Parse the annotation string and convert normalized coordinates to pixel values.
+            
+            Args:
+                annotation (str): Annotation string (class x_center y_center width height confidence).
+                stride_large (int): The size of the sub-image that the bounding box is relative to (960 in this case).
+
+            Returns:
+                (int, int, int, int): The coordinates of the bounding box in pixel values (x1, y1, x2, y2).
+            """
+            class_, x_center, y_center, width, height, conf_ = map(float, annotation.split())
+            class_=int(class_)
+            
+            # Convert normalized coordinates to pixel values based on stride_large (960x960)
+            x_center *= stride_large
+            y_center *= stride_large
+            width *= stride_large
+            height *= stride_large
+            
+            x1 = int(x_center - width / 2)
+            y1 = int(y_center - height / 2)
+            x2 = int(x_center + width / 2)
+            y2 = int(y_center + height / 2)
+            
+            return class_,x1, y1, x2, y2,conf_
+
+        def update_heatmap(heatmap, x1, y1, x2, y2, row, col, offset_x, offset_y, class_,stride=32):
+            """
+            Update the heatmap based on bounding box coordinates.
+
+            Args:
+                heatmap (np.ndarray): The heatmap array to update.
+                x1, y1, x2, y2 (int): Bounding box coordinates.
+                row, col (int): Row and column indices of the current sub-image in the grid.
+                offset_x, offset_y (int): Offsets to apply based on the position of the sub-image within the full image.
+                stride (int): The stride of the first pipeline's heatmap (default is 32).
+            """
+            # Adjust coordinates to the heatmap's resolution
+            x1 = (x1 + offset_x) // stride
+            y1 = (y1 + offset_y) // stride
+            x2 = (x2 + offset_x) // stride
+            y2 = (y2 + offset_y) // stride
+            
+            # Calculate the offset in the heatmap for this particular image grid
+            row_offset = row * (img_size // stride)
+            col_offset = col * (img_size // stride)
+            
+            # Update the global heatmap
+            # print(class_,row_offset + y1, row_offset + y2,col_offset + x1, col_offset + x2)
+            nft_output[class_,row_offset + y1: row_offset + y2,
+                    col_offset + x1: col_offset + x2] = 1
+                
+        nft_output = np.zeros((2, heatmap_res*row_nums, heatmap_res*col_nums))
+        print(nft_output)
+        # exit()
+        # plaque_output = np.zeros((3, heatmap_res*row_nums, heatmap_res*col_nums))
         seg_output = np.zeros((heatmap_res*row_nums, heatmap_res*col_nums), dtype=np.uint8)
 
         seg_model.train(False)  # Set model to evaluate mode
-        plaq_model.train(False)
+        # plaq_model.train(False)
         
         start_time = time.perf_counter() # To evaluate Time taken per inference
 
+
         for row in tqdm(range(row_nums)):
             for col in range(col_nums):
+                
 
                 image_datasets = HeatmapDataset(TILE_DIR, row, col, normalize, stride=stride)
                 dataloader = torch.utils.data.DataLoader(image_datasets, batch_size=batch_size,
                                                     shuffle=False, num_workers=num_workers)
                 
-                # From Plaque-Detection:
+                # # From Plaque-Detection:
                 running_plaques = torch.Tensor(0)
                 # For Stride 32 (BrainSeg):
                 running_seg = torch.zeros((32), dtype=torch.uint8)
                 output_class = np.zeros((heatmap_res, heatmap_res), dtype=np.uint8)
+
+                roi_fp = TILE_DIR+'/'+str(row)+'/'+str(col)+'.jpg'
+                save_fp = 'results_jc/sample-roi-label.txt'
+                temp_dir="/cache/Shivam/BrainSec-py/data_ONCE/"+'vizz_nft_outputs/{}/{}/{}'.format(filename,row,col)
+                print(TILE_DIR,IMG_DIR,temp_dir)
+                print("ROW, COLUMNS",row,col)
+                print("STARTINF NFT PREDICTION","#########",sep="\n")
+                pred_df = roi_inference(
+                    roi_fp, weights, tile_size = 1536, temp_dir=temp_dir,save_fp=save_fp,yolodir='/cache/Shivam/yolo-braak-stage/nft-detection-yolov5/', device=device, 
+                    iou_thr=iou_thr, contained_thr=contained_thr, conf_thr=conf_thr, 
+                    boundary_thr=mask_thr
+                )
+                # for txtfile in os.listdir(os.path.join(temp_dir,"predictions","labels"))
+                annotation_files = [
+                    f'{col}-x0y0.txt', 
+                    f'{col}-x0y960.txt', 
+                    f'{col}-x960y0.txt'
+                ]
+                offsets = [(0, 0), (0, 960), (960, 0)]
                 
+                for annotation_file, (offset_x, offset_y) in zip(annotation_files, offsets):
+                    if os.path.exists(os.path.join(temp_dir,"predictions","labels",annotation_file)):
+                        annotation_file = os.path.join(temp_dir,"predictions","labels",annotation_file)
+                        with open(annotation_file, 'r') as file:
+                            annotations = file.readlines()  # Read all annotations from the text file
+                        
+                        if annotations:  # Check if there are any annotations
+                            # Update the heatmap based on each annotation in the current file
+                            for annotation in annotations:
+                                print("number of 1s before",np.count_nonzero(nft_output==1))
+                                class_,x1, y1, x2, y2,conf_ = parse_annotation(annotation.strip())
+                                update_heatmap(nft_output, x1, y1, x2, y2, row, col, offset_x, offset_y,class_)
+                                print("number of 1s after",np.count_nonzero(nft_output==1))
+                    else:
+                        print(f"Annotation file {annotation_file} does not exist, skipping.")
+                print("finishing NFT PREDICTION","#########",sep="\n")
+
+                print("STARTING WMGM PREDICTION","#########",sep="\n")
+
                 for idx, data in enumerate(dataloader):
+                    print("lenght of data for this WMGM batch",len(data))
                     # get the inputs
                     inputs = data
                     # wrap them in Variable
                     if use_gpu:
                         inputs = Variable(inputs.cuda(), volatile=True)
                         
-                        # forward (Plaque Detection) :
-                        outputs = plaq_model(inputs)
-                        preds = F.sigmoid(outputs) # Posibility for each class = [0,1]
-                        preds = preds.data.cpu()
-                        running_plaques = torch.cat([running_plaques, preds])
+                        # # forward (Plaque Detection) :
+                        # outputs = plaq_model(inputs)
+                        # preds = F.sigmoid(outputs) # Posibility for each class = [0,1]
+                        # preds = preds.data.cpu()
+                        # running_plaques = torch.cat([running_plaques, preds])
+                        
+                        # exit()
+                        
                         
                         # forward (BrainSeg) :
                         predict = seg_model(inputs)
                         _, indices = torch.max(predict.data, 1) # indices = 0:Background, 1:WM, 2:GM
                         indices = indices.type(torch.uint8)
                         running_seg =  indices.data.cpu()
+                        # print(heatmap_res,batch_size,img_size,stride,"error")
 
                         # For Stride 32 (BrainSeg) :
                         i = (idx // (heatmap_res//batch_size))
                         j = (idx % (heatmap_res//batch_size))
                         output_class[i,j*batch_size:(j+1)*batch_size] = running_seg
+                        
                 
                 # Final Outputs of Brain Segmentation
                 seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
                 
                 # Final Outputs of Plaque Detection:
-                cored = np.asarray(running_plaques[:,0]).reshape(img_size//stride,img_size//stride)
-                diffuse = np.asarray(running_plaques[:,1]).reshape(img_size//stride,img_size//stride)
-                caa = np.asarray(running_plaques[:,2]).reshape(img_size//stride,img_size//stride)
+                # cored = np.asarray(running_plaques[:,0]).reshape(img_size//stride,img_size//stride)
+                # diffuse = np.asarray(running_plaques[:,1]).reshape(img_size//stride,img_size//stride)
+                # caa = np.asarray(running_plaques[:,2]).reshape(img_size//stride,img_size//stride)
                 
-                plaque_output[0, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = cored
-                plaque_output[1, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = diffuse
-                plaque_output[2, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = caa
+                # plaque_output[0, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = cored
+                # plaque_output[1, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = diffuse
+                # plaque_output[2, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = caa
 
                 seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
+                
 
-        # Saving Confidence=[0,1] for Plaque Detection
-        np.save(SAVE_PLAQ_DIR+filename, plaque_output)
+        # # Saving Confidence=[0,1] for Plaque Detection
+        # np.save(SAVE_PLAQ_DIR+filename, plaque_output)
+
+        # # Saving Confidence=[0,1] for NFT Detection
+        np.save("/cache/Shivam/BrainSec-py/data_ONCE/"+'vizz_nft_outputs/'+filename, nft_output)
         
         # Saving BrainSeg Classification={0,1,2}
+        # exit()
         np.save(SAVE_NP_DIR+filename, seg_output)
         saveBrainSegImage(seg_output, \
                         SAVE_IMG_DIR + filename + '.png')
@@ -243,6 +401,373 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
         print("Time to process " \
             + filename \
             + ": ", end_time-start_time, "sec")
+        # Initialize outputs accordingly:
+        heatmap_res = img_size // stride
+        # print(heatmap_res,"heatmao size",row_nums,col_nums)
+
+        def parse_annotation(annotation, stride_large=960):
+            """
+            Parse the annotation string and convert normalized coordinates to pixel values.
+            
+            Args:
+                annotation (str): Annotation string (class x_center y_center width height confidence).
+                stride_large (int): The size of the sub-image that the bounding box is relative to (960 in this case).
+
+            Returns:
+                (int, int, int, int): The coordinates of the bounding box in pixel values (x1, y1, x2, y2).
+            """
+            class_, x_center, y_center, width, height, conf_ = map(float, annotation.split())
+            class_=int(class_)
+            
+            # Convert normalized coordinates to pixel values based on stride_large (960x960)
+            x_center *= stride_large
+            y_center *= stride_large
+            width *= stride_large
+            height *= stride_large
+            
+            x1 = int(x_center - width / 2)
+            y1 = int(y_center - height / 2)
+            x2 = int(x_center + width / 2)
+            y2 = int(y_center + height / 2)
+            
+            return class_,x1, y1, x2, y2,conf_
+
+        def update_heatmap(heatmap, x1, y1, x2, y2, row, col, offset_x, offset_y, class_,stride=32):
+            """
+            Update the heatmap based on bounding box coordinates.
+
+            Args:
+                heatmap (np.ndarray): The heatmap array to update.
+                x1, y1, x2, y2 (int): Bounding box coordinates.
+                row, col (int): Row and column indices of the current sub-image in the grid.
+                offset_x, offset_y (int): Offsets to apply based on the position of the sub-image within the full image.
+                stride (int): The stride of the first pipeline's heatmap (default is 32).
+            """
+            # Adjust coordinates to the heatmap's resolution
+            x1 = (x1 + offset_x) // stride
+            y1 = (y1 + offset_y) // stride
+            x2 = (x2 + offset_x) // stride
+            y2 = (y2 + offset_y) // stride
+            
+            # Calculate the offset in the heatmap for this particular image grid
+            row_offset = row * (img_size // stride)
+            col_offset = col * (img_size // stride)
+            
+            # Update the global heatmap
+            # print(class_,row_offset + y1, row_offset + y2,col_offset + x1, col_offset + x2)
+            nft_output[class_,row_offset + y1: row_offset + y2,
+                    col_offset + x1: col_offset + x2] = 1
+                
+        nft_output = np.zeros((2, heatmap_res*row_nums, heatmap_res*col_nums))
+        print(nft_output)
+        # exit()
+        # plaque_output = np.zeros((3, heatmap_res*row_nums, heatmap_res*col_nums))
+        seg_output = np.zeros((heatmap_res*row_nums, heatmap_res*col_nums), dtype=np.uint8)
+
+        seg_model.train(False)  # Set model to evaluate mode
+        # plaq_model.train(False)
+        
+        start_time = time.perf_counter() # To evaluate Time taken per inference
+
+
+        for row in tqdm(range(row_nums)):
+            for col in range(col_nums):
+                
+
+                image_datasets = HeatmapDataset(TILE_DIR, row, col, normalize, stride=stride)
+                dataloader = torch.utils.data.DataLoader(image_datasets, batch_size=batch_size,
+                                                    shuffle=False, num_workers=num_workers)
+                
+                # # From Plaque-Detection:
+                running_plaques = torch.Tensor(0)
+                # For Stride 32 (BrainSeg):
+                running_seg = torch.zeros((32), dtype=torch.uint8)
+                output_class = np.zeros((heatmap_res, heatmap_res), dtype=np.uint8)
+
+                roi_fp = TILE_DIR+'/'+str(row)+'/'+str(col)+'.jpg'
+                save_fp = 'results_jc/sample-roi-label.txt'
+                temp_dir="/cache/Shivam/BrainSec-py/data_ONCE/"+'vizz_nft_outputs/{}/{}/{}'.format(filename,row,col)
+                print(TILE_DIR,IMG_DIR,temp_dir)
+                print("ROW, COLUMNS",row,col)
+                print("STARTINF NFT PREDICTION","#########",sep="\n")
+                pred_df = roi_inference(
+                    roi_fp, weights, tile_size = 1536, temp_dir=temp_dir,save_fp=save_fp,yolodir='/cache/Shivam/yolo-braak-stage/nft-detection-yolov5/', device=device, 
+                    iou_thr=iou_thr, contained_thr=contained_thr, conf_thr=conf_thr, 
+                    boundary_thr=mask_thr
+                )
+                # for txtfile in os.listdir(os.path.join(temp_dir,"predictions","labels"))
+                annotation_files = [
+                    f'{col}-x0y0.txt', 
+                    f'{col}-x0y960.txt', 
+                    f'{col}-x960y0.txt'
+                ]
+                offsets = [(0, 0), (0, 960), (960, 0)]
+                
+                for annotation_file, (offset_x, offset_y) in zip(annotation_files, offsets):
+                    if os.path.exists(os.path.join(temp_dir,"predictions","labels",annotation_file)):
+                        annotation_file = os.path.join(temp_dir,"predictions","labels",annotation_file)
+                        with open(annotation_file, 'r') as file:
+                            annotations = file.readlines()  # Read all annotations from the text file
+                        
+                        if annotations:  # Check if there are any annotations
+                            # Update the heatmap based on each annotation in the current file
+                            for annotation in annotations:
+                                print("number of 1s before",np.count_nonzero(nft_output==1))
+                                class_,x1, y1, x2, y2,conf_ = parse_annotation(annotation.strip())
+                                update_heatmap(nft_output, x1, y1, x2, y2, row, col, offset_x, offset_y,class_)
+                                print("number of 1s after",np.count_nonzero(nft_output==1))
+                    else:
+                        print(f"Annotation file {annotation_file} does not exist, skipping.")
+                print("finishing NFT PREDICTION","#########",sep="\n")
+
+                print("STARTING WMGM PREDICTION","#########",sep="\n")
+
+                for idx, data in enumerate(dataloader):
+                    print("lenght of data for this WMGM batch",len(data))
+                    # get the inputs
+                    inputs = data
+                    # wrap them in Variable
+                    if use_gpu:
+                        inputs = Variable(inputs.cuda(), volatile=True)
+                        
+                        # # forward (Plaque Detection) :
+                        # outputs = plaq_model(inputs)
+                        # preds = F.sigmoid(outputs) # Posibility for each class = [0,1]
+                        # preds = preds.data.cpu()
+                        # running_plaques = torch.cat([running_plaques, preds])
+                        
+                        # exit()
+                        
+                        
+                        # forward (BrainSeg) :
+                        predict = seg_model(inputs)
+                        _, indices = torch.max(predict.data, 1) # indices = 0:Background, 1:WM, 2:GM
+                        indices = indices.type(torch.uint8)
+                        running_seg =  indices.data.cpu()
+                        # print(heatmap_res,batch_size,img_size,stride,"error")
+
+                        # For Stride 32 (BrainSeg) :
+                        i = (idx // (heatmap_res//batch_size))
+                        j = (idx % (heatmap_res//batch_size))
+                        output_class[i,j*batch_size:(j+1)*batch_size] = running_seg
+                        
+                
+                # Final Outputs of Brain Segmentation
+                seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
+                
+                # Final Outputs of Plaque Detection:
+                # cored = np.asarray(running_plaques[:,0]).reshape(img_size//stride,img_size//stride)
+                # diffuse = np.asarray(running_plaques[:,1]).reshape(img_size//stride,img_size//stride)
+                # caa = np.asarray(running_plaques[:,2]).reshape(img_size//stride,img_size//stride)
+                
+                # plaque_output[0, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = cored
+                # plaque_output[1, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = diffuse
+                # plaque_output[2, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = caa
+
+                seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
+                
+
+        # # Saving Confidence=[0,1] for Plaque Detection
+        # np.save(SAVE_PLAQ_DIR+filename, plaque_output)
+
+        # # Saving Confidence=[0,1] for NFT Detection
+        np.save("/cache/Shivam/BrainSec-py/data_ONCE/"+'vizz_nft_outputs/'+filename, nft_output)
+        
+        # Saving BrainSeg Classification={0,1,2}
+        # exit()
+        np.save(SAVE_NP_DIR+filename, seg_output)
+        saveBrainSegImage(seg_output, \
+                        SAVE_IMG_DIR + filename + '.png')
+        
+        # Time Statistics for Inference
+        end_time = time.perf_counter()
+        print("Time to process " \
+            + filename \
+            + ": ", end_time-start_time, "sec")
+        # Initialize outputs accordingly:
+        heatmap_res = img_size // stride
+        # print(heatmap_res,"heatmao size",row_nums,col_nums)
+
+        def parse_annotation(annotation, stride_large=960):
+            """
+            Parse the annotation string and convert normalized coordinates to pixel values.
+            
+            Args:
+                annotation (str): Annotation string (class x_center y_center width height confidence).
+                stride_large (int): The size of the sub-image that the bounding box is relative to (960 in this case).
+
+            Returns:
+                (int, int, int, int): The coordinates of the bounding box in pixel values (x1, y1, x2, y2).
+            """
+            class_, x_center, y_center, width, height, conf_ = map(float, annotation.split())
+            class_=int(class_)
+            
+            # Convert normalized coordinates to pixel values based on stride_large (960x960)
+            x_center *= stride_large
+            y_center *= stride_large
+            width *= stride_large
+            height *= stride_large
+            
+            x1 = int(x_center - width / 2)
+            y1 = int(y_center - height / 2)
+            x2 = int(x_center + width / 2)
+            y2 = int(y_center + height / 2)
+            
+            return class_,x1, y1, x2, y2,conf_
+
+        def update_heatmap(heatmap, x1, y1, x2, y2, row, col, offset_x, offset_y, class_,stride=32):
+            """
+            Update the heatmap based on bounding box coordinates.
+
+            Args:
+                heatmap (np.ndarray): The heatmap array to update.
+                x1, y1, x2, y2 (int): Bounding box coordinates.
+                row, col (int): Row and column indices of the current sub-image in the grid.
+                offset_x, offset_y (int): Offsets to apply based on the position of the sub-image within the full image.
+                stride (int): The stride of the first pipeline's heatmap (default is 32).
+            """
+            # Adjust coordinates to the heatmap's resolution
+            x1 = (x1 + offset_x) // stride
+            y1 = (y1 + offset_y) // stride
+            x2 = (x2 + offset_x) // stride
+            y2 = (y2 + offset_y) // stride
+            
+            # Calculate the offset in the heatmap for this particular image grid
+            row_offset = row * (img_size // stride)
+            col_offset = col * (img_size // stride)
+            
+            # Update the global heatmap
+            # print(class_,row_offset + y1, row_offset + y2,col_offset + x1, col_offset + x2)
+            nft_output[class_,row_offset + y1: row_offset + y2,
+                    col_offset + x1: col_offset + x2] = 1
+                
+        nft_output = np.zeros((2, heatmap_res*row_nums, heatmap_res*col_nums))
+        print(nft_output)
+        # exit()
+        # plaque_output = np.zeros((3, heatmap_res*row_nums, heatmap_res*col_nums))
+        seg_output = np.zeros((heatmap_res*row_nums, heatmap_res*col_nums), dtype=np.uint8)
+
+        seg_model.train(False)  # Set model to evaluate mode
+        # plaq_model.train(False)
+        
+        start_time = time.perf_counter() # To evaluate Time taken per inference
+
+
+        for row in tqdm(range(row_nums)):
+            for col in range(col_nums):
+                
+
+                image_datasets = HeatmapDataset(TILE_DIR, row, col, normalize, stride=stride)
+                dataloader = torch.utils.data.DataLoader(image_datasets, batch_size=batch_size,
+                                                    shuffle=False, num_workers=num_workers)
+                
+                # # From Plaque-Detection:
+                running_plaques = torch.Tensor(0)
+                # For Stride 32 (BrainSeg):
+                running_seg = torch.zeros((32), dtype=torch.uint8)
+                output_class = np.zeros((heatmap_res, heatmap_res), dtype=np.uint8)
+
+                roi_fp = TILE_DIR+'/'+str(row)+'/'+str(col)+'.jpg'
+                save_fp = 'results_jc/sample-roi-label.txt'
+                temp_dir="/cache/Shivam/BrainSec-py/data_ONCE/"+'vizz_nft_outputs/{}/{}/{}'.format(filename,row,col)
+                print(TILE_DIR,IMG_DIR,temp_dir)
+                print("ROW, COLUMNS",row,col)
+                print("STARTINF NFT PREDICTION","#########",sep="\n")
+                pred_df = roi_inference(
+                    roi_fp, weights, tile_size = 1536, temp_dir=temp_dir,save_fp=save_fp,yolodir='/cache/Shivam/yolo-braak-stage/nft-detection-yolov5/', device=device, 
+                    iou_thr=iou_thr, contained_thr=contained_thr, conf_thr=conf_thr, 
+                    boundary_thr=mask_thr
+                )
+                # for txtfile in os.listdir(os.path.join(temp_dir,"predictions","labels"))
+                annotation_files = [
+                    f'{col}-x0y0.txt', 
+                    f'{col}-x0y960.txt', 
+                    f'{col}-x960y0.txt'
+                ]
+                offsets = [(0, 0), (0, 960), (960, 0)]
+                
+                for annotation_file, (offset_x, offset_y) in zip(annotation_files, offsets):
+                    if os.path.exists(os.path.join(temp_dir,"predictions","labels",annotation_file)):
+                        annotation_file = os.path.join(temp_dir,"predictions","labels",annotation_file)
+                        with open(annotation_file, 'r') as file:
+                            annotations = file.readlines()  # Read all annotations from the text file
+                        
+                        if annotations:  # Check if there are any annotations
+                            # Update the heatmap based on each annotation in the current file
+                            for annotation in annotations:
+                                print("number of 1s before",np.count_nonzero(nft_output==1))
+                                class_,x1, y1, x2, y2,conf_ = parse_annotation(annotation.strip())
+                                update_heatmap(nft_output, x1, y1, x2, y2, row, col, offset_x, offset_y,class_)
+                                print("number of 1s after",np.count_nonzero(nft_output==1))
+                    else:
+                        print(f"Annotation file {annotation_file} does not exist, skipping.")
+                print("finishing NFT PREDICTION","#########",sep="\n")
+
+                print("STARTING WMGM PREDICTION","#########",sep="\n")
+
+                for idx, data in enumerate(dataloader):
+                    print("lenght of data for this WMGM batch",len(data))
+                    # get the inputs
+                    inputs = data
+                    # wrap them in Variable
+                    if use_gpu:
+                        inputs = Variable(inputs.cuda(), volatile=True)
+                        
+                        # # forward (Plaque Detection) :
+                        # outputs = plaq_model(inputs)
+                        # preds = F.sigmoid(outputs) # Posibility for each class = [0,1]
+                        # preds = preds.data.cpu()
+                        # running_plaques = torch.cat([running_plaques, preds])
+                        
+                        # exit()
+                        
+                        
+                        # forward (BrainSeg) :
+                        predict = seg_model(inputs)
+                        _, indices = torch.max(predict.data, 1) # indices = 0:Background, 1:WM, 2:GM
+                        indices = indices.type(torch.uint8)
+                        running_seg =  indices.data.cpu()
+                        # print(heatmap_res,batch_size,img_size,stride,"error")
+
+                        # For Stride 32 (BrainSeg) :
+                        i = (idx // (heatmap_res//batch_size))
+                        j = (idx % (heatmap_res//batch_size))
+                        output_class[i,j*batch_size:(j+1)*batch_size] = running_seg
+                        
+                
+                # Final Outputs of Brain Segmentation
+                seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
+                
+                # Final Outputs of Plaque Detection:
+                # cored = np.asarray(running_plaques[:,0]).reshape(img_size//stride,img_size//stride)
+                # diffuse = np.asarray(running_plaques[:,1]).reshape(img_size//stride,img_size//stride)
+                # caa = np.asarray(running_plaques[:,2]).reshape(img_size//stride,img_size//stride)
+                
+                # plaque_output[0, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = cored
+                # plaque_output[1, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = diffuse
+                # plaque_output[2, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = caa
+
+                seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
+                
+
+        # # Saving Confidence=[0,1] for Plaque Detection
+        # np.save(SAVE_PLAQ_DIR+filename, plaque_output)
+
+        # # Saving Confidence=[0,1] for NFT Detection
+        np.save("/cache/Shivam/BrainSec-py/data_ONCE/"+'vizz_nft_outputs/'+filename, nft_output)
+        
+        # Saving BrainSeg Classification={0,1,2}
+        # exit()
+        np.save(SAVE_NP_DIR+filename, seg_output)
+        saveBrainSegImage(seg_output, \
+                        SAVE_IMG_DIR + filename + '.png')
+        
+        # Time Statistics for Inference
+        end_time = time.perf_counter()
+        print("Time to process " \
+            + filename \
+            + ": ", end_time-start_time, "sec")
+
         
 def plot_heatmap(final_output) :
     """

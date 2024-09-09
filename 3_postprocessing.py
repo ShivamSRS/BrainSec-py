@@ -28,13 +28,26 @@ def saveBrainSegImage(nums, save_dir) :
        nums: 2D-NumPy Array containing classification
        save_dir: string indicating save location
     """ 
-    
+    print(nums,nums.shape)
+    unique_values, counts = np.unique(nums, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
+    # exit()
     nums = np.repeat(nums[:,:, np.newaxis], 3, axis=2)
     
     # nums[:,:,0] = RED, nums[:,:,1] = Green, nums[:,:,2] = Blue
+    idx_0 = np.where(nums[:,:,0] == 0)  # Index of BG
+    
     idx_1 = np.where(nums[:,:,0] == 1)  # Index of label 1 (WM)
     idx_2 = np.where(nums[:,:,0] == 2)  # Index of label 2 (GM)
+    print("idx1",idx_1,"idx2",idx_2,"lengths",len(idx_1[0]),len(idx_1[1]),len(idx_2[0]),len(idx_2[1]),len(idx_0[0]),len(idx_0[1]),sep="\n\n\n\n")
+    unique_values, counts = np.unique(nums, return_counts=True)
 
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
     # For label 0, leave as black color
     # For label 1, set to yellow color: R255G255B0 (WM)
     nums[:,:,0].flat[np.ravel_multi_index(idx_1, nums[:,:,0].shape)] = 255
@@ -48,6 +61,7 @@ def saveBrainSegImage(nums, save_dir) :
     nums = nums.astype(np.uint8) # PIL save only accepts uint8 {0,..,255}
     save_img = Image.fromarray(nums, 'RGB')
     save_img.save(save_dir)
+    
     print("Saved at: " + save_dir)
 
 
@@ -67,6 +81,13 @@ def method_6(mask_img: "Image", down_factor=4) -> "NDArray[np.uint8]":
     # pylint: enable=invalid-name
 
     mask_img = Image.fromarray(mask_img)
+    print("\n\n\n first")
+    unique_values, counts = np.unique(mask_img, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
+
     width, height = mask_img.width, mask_img.height
     area_threshold_prop = 0.05
     area_threshold = int(area_threshold_prop * width * height // down_factor**2)
@@ -76,26 +97,56 @@ def method_6(mask_img: "Image", down_factor=4) -> "NDArray[np.uint8]":
         mask_img.resize((width // down_factor, height // down_factor), Image.NEAREST))
     del mask_img
     print('Finish downsampling')
+    unique_values, counts = np.unique(mask_arr, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
 
     # Apply area_opening to remove local maxima with area < 20000 px
     mask_arr = morphology.area_opening(mask_arr, area_threshold=3200 // down_factor**2)
     print('Finish area_opening #1')
+    unique_values, counts = np.unique(mask_arr, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
 
     # Swap index of GM and WM
     mask_arr = swap_GM_WM(mask_arr)
     print('Finish swapping index')
+    unique_values, counts = np.unique(mask_arr, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
 
     # Apply area_opening to remove local maxima with area < 20000 px
     mask_arr = morphology.area_opening(mask_arr, area_threshold=3200 // down_factor**2)
     print('Finish area_opening #2')
+    unique_values, counts = np.unique(mask_arr, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
 
     # Swap index back
     mask_arr = swap_GM_WM(mask_arr)
     print('Finish swapping index back')
+    unique_values, counts = np.unique(mask_arr, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
 
     # Apply area_closing to remove local minima with area < 12500 px
     mask_arr = morphology.area_closing(mask_arr, area_threshold=2000 // down_factor**2)
     print('Finish area_closing')
+    unique_values, counts = np.unique(mask_arr, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
 
     # Apply remove_small_objects to remove tissue residue with area < 0.05 * width * height
     tissue_arr = morphology.remove_small_objects(mask_arr > 0, min_size=area_threshold,
@@ -103,14 +154,29 @@ def method_6(mask_img: "Image", down_factor=4) -> "NDArray[np.uint8]":
     mask_arr[np.invert(tissue_arr)] = 0
     del tissue_arr
     print('Finish remove_small_objects')
+    unique_values, counts = np.unique(mask_arr, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
 
     # Apply opening with disk-shaped kernel (r=8) to smooth boundary
     mask_arr = morphology.opening(mask_arr, footprint=morphology.disk(radius=32 // down_factor))
     print('Finish morphological opening')
+    unique_values, counts = np.unique(mask_arr, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
 
     # Upsample the output
     mask_arr = np.array(Image.fromarray(mask_arr).resize((width, height), Image.NEAREST))
     print('Finish upsampling')
+    unique_values, counts = np.unique(mask_arr, return_counts=True)
+
+    # Display the results
+    for value, count in zip(unique_values, counts):
+        print(f"Value: {value}, Count: {count}")
 
     return mask_arr
 
@@ -274,6 +340,14 @@ def post_brainseg(BRAINSEG_NP_PRE_DIR, POST_NP_DIR, POST_IMG_DIR, filenames):
         fileLoc = BRAINSEG_NP_PRE_DIR + filename + ".npy"
         print("Loading: " + fileLoc)
         seg_pic = np.load(fileLoc)
+        print("seg pic",seg_pic)
+
+        unique_values, counts = np.unique(seg_pic, return_counts=True)
+
+        # Display the results
+        for value, count in zip(unique_values, counts):
+            print(f"Value: {value}, Count: {count}")
+        # exit()
         processed = method_6(seg_pic)
         np.save(POST_NP_DIR+filename, processed)
         saveBrainSegImage(processed, \
@@ -410,7 +484,7 @@ def main():
     print("Post-processing for BrainSeg finished")
     print("____________________________________________")
     print("Post-processing for Plaques ...")
-    post_plaque(SAVE_DIR, CSV_FILE, HEATMAP_DIR, POST_NP_DIR, SAVE_IMG_DIR, SAVE_NP_DIR, filenames)
+    # post_plaque(SAVE_DIR, CSV_FILE, HEATMAP_DIR, POST_NP_DIR, SAVE_IMG_DIR, SAVE_NP_DIR, filenames)
     print("Post-processing for Plaques finished")
     print("____________________________________________")
     print("Post-processing finished")
