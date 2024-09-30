@@ -47,6 +47,24 @@ import argparse
 import time
 import gc
 
+"""sina imports"""
+import os, gc
+from pathlib import Path
+import pandas as pd
+
+import torch.utils.data as data
+import pytorch_lightning as pl
+from pytorch_lightning import Trainer
+import sys
+sys.path.append('//cache/Shivam/tangle-tracer/')
+sys.path.append('/cache/Shivam/tangle-tracer/tangle_tracer/')
+sys.path.append('/cache/Shivam/tangle-tracer/tangle_tracer/modules.py')  # mamke sina module available
+sys.path.append('/cache/Shivam/tangle-tracer/tangle_tracer/nft_datasets.py')
+from modules import NFTDetector
+from nft_datasets import TileDataset
+
+
+
 class HeatmapDataset(Dataset):
     def __init__(self, tile_dir, row, col, normalize, stride=1):
         """
@@ -61,6 +79,7 @@ class HeatmapDataset(Dataset):
         self.stride = stride
         padding = 128
         large_img = torch.ones(3, 3*self.img_size, 3*self.img_size)
+        print("inside init large img shape",large_img.shape)
         
         for i in [-1,0,1]:
             for j in [-1,0,1]:
@@ -70,12 +89,14 @@ class HeatmapDataset(Dataset):
                     img = transforms.ToTensor()(img) 
                 except:
                     img = torch.ones(3,self.img_size, self.img_size)
-                
+                print("inside init",img.shape)
                 large_img[:, (i+1)*self.img_size:(i+2)*self.img_size,(j+1)*self.img_size:(j+2)*self.img_size] = img
+                print("inside init large img shape after ij",large_img.shape,i,j)
         
         large_img = normalize(large_img)
         
         self.padding_img = large_img[:,self.img_size-padding:2*self.img_size+padding, self.img_size-padding:2*self.img_size+padding]
+        print(self.padding_img.shape,"padding size inside init")
         self.len = (self.img_size//self.stride)**2
         
     def __getitem__(self, index):
@@ -233,7 +254,7 @@ def classify_blobs(labeled_mask) :
 
 
 
-def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR,SAVE_NFT_IMG_DIR,SAVE_NFT_NP_DIR):
+def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR):
     img_size = 1536
     stride = 32
     batch_size = 48 
@@ -266,21 +287,6 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
         # plaq_model = plaq_model.module
 
     # Inference Loop:
-    import pandas as pd
-
-    # Sample data: Replace this with your actual DataFrame
-    data_nftcounts_dict = {
-        'WSI_NAME':[],
-        'prenft_count_wm': [],
-        'prenft_count_gm': [],
-        'prenft_count_bg': [],
-        'prenft_count_total': [],
-        'inft_count_wm': [],
-        'inft_count_gm': [],
-        'inft_count_bg': [],
-        'inft_count_total': [],
-    }
-
 
     for filename in filenames[:]:
         print("Now processing: ", filename)
@@ -319,7 +325,7 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
         weights = '/cache/Shivam/yolo-braak-stage/best.pt'
 
         # Select an ROI image to test. Note that some ROIs have no NFTs to predict so might return no predictions.
-        # roi_fp = '/cache/Shivam/BrainSec-py/data_ONCE/norm_tiles/1-271-Temporal_AT8.czi/0/10/13.jpg'
+        roi_fp = '/cache/Shivam/BrainSec-py/data_ONCE/norm_tiles/1-271-Temporal_AT8.czi/0/10/13.jpg'
 
 
         # For WSI we speed tiling by using parallel processing in Python 
@@ -379,7 +385,7 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
             
             return class_,x1, y1, x2, y2,conf_
 
-        def update_heatmap(heatmap, x1, y1, x2, y2, row, col, offset_x, offset_y, class_,stride=1):
+        def update_heatmap(heatmap, x1, y1, x2, y2, row, col, offset_x, offset_y, class_,stride=32):
             """
             Update the heatmap based on bounding box coordinates.
 
@@ -402,93 +408,39 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
             
             # Update the global heatmap
             # print(class_,row_offset + y1, row_offset + y2,col_offset + x1, col_offset + x2)
-            small_nft_output[class_,  y1: y2,x1:   x2] = 1
             nft_output[class_,row_offset + y1: row_offset + y2,
                     col_offset + x1: col_offset + x2] = 1
                 
-        nft_output = np.zeros((2, img_size*row_nums, img_size*col_nums))
-        print(nft_output.shape)
+        nft_output = np.zeros((2, heatmap_res*row_nums, heatmap_res*col_nums))
+        print(nft_output)
         # exit()
         # plaque_output = np.zeros((3, heatmap_res*row_nums, heatmap_res*col_nums))
         seg_output = np.zeros((heatmap_res*row_nums, heatmap_res*col_nums), dtype=np.uint8)
-        # print(seg_output.shape)
-        # exit()
+
         seg_model.train(False)  # Set model to evaluate mode
         # plaq_model.train(False)
         
         start_time = time.perf_counter() # To evaluate Time taken per inference
 
-        final_prenft_count_wm = 0
-        final_prenft_count_gm = 0
-        final_prenft_count_bg = 0
-        final_inft_count_wm = 0
-        final_inft_count_gm = 0
-        final_inft_count_bg = 0
+        final_prenft_count = 0
+        final_inft_count = 0
         for row in tqdm(range(row_nums)):
             for col in range(col_nums):
                 
-                # row=0
-                # col=12
-                final_prenft_count=0
-                final_inft_count=0
+                row=0
+                col=14
                 image_datasets = HeatmapDataset(TILE_DIR, row, col, normalize, stride=stride)
                 dataloader = torch.utils.data.DataLoader(image_datasets, batch_size=batch_size,
                                                     shuffle=False, num_workers=num_workers)
                 
                 # # From Plaque-Detection:
                 running_plaques = torch.Tensor(0)
-                small_nft_output = np.zeros((2, img_size, img_size), dtype=np.uint8)
                 # For Stride 32 (BrainSeg):
                 running_seg = torch.zeros((32), dtype=torch.uint8)
+                print(batch_size,len(dataloader),batch_size*len(dataloader))
                 output_class = np.zeros((heatmap_res, heatmap_res), dtype=np.uint8)
 
-                roi_fp = TILE_DIR+'/'+str(row)+'/'+str(col)+'.jpg'
                 
-                save_fp = 'results_jc/sample-roi-label.txt'
-                temp_dir="/cache/Shivam/BrainSec-py/"+str(IMG_DIR.split("/")[0])+'/vizz_nft_outputs/{}/{}/{}'.format(filename,row,col)
-                print(TILE_DIR,IMG_DIR,temp_dir)
-
-                # exit()
-                print("ROW, COLUMNS",row,col)
-                print("STARTINF NFT PREDICTION","#########",sep="\n")
-                pred_df = roi_inference(
-                    roi_fp, weights, tile_size = 1536, temp_dir=temp_dir,save_fp=save_fp,yolodir='/cache/Shivam/yolo-braak-stage/nft-detection-yolov5/', device=device, 
-                    iou_thr=iou_thr, contained_thr=contained_thr, conf_thr=conf_thr, 
-                    boundary_thr=mask_thr
-                )
-                # for txtfile in os.listdir(os.path.join(temp_dir,"predictions","labels"))
-                annotation_files = [
-                    f'{col}-x0y0.txt', 
-                    f'{col}-x0y960.txt', 
-                    f'{col}-x960y0.txt'
-                ]
-                offsets = [(0, 0), (0, 960), (960, 0)]
-                
-                
-                for annotation_file, (offset_x, offset_y) in zip(annotation_files, offsets):
-                    if os.path.exists(os.path.join(temp_dir,"predictions","labels",annotation_file)):
-                        annotation_file = os.path.join(temp_dir,"predictions","labels",annotation_file)
-                        with open(annotation_file, 'r') as file:
-                            annotations = file.readlines()  # Read all annotations from the text file
-                        
-                        if annotations:  # Check if there are any annotations
-                            # Update the heatmap based on each annotation in the current file
-                            print("NFT row col",row,col)
-                            for annotation in annotations:
-                                print("number of 1s before",np.count_nonzero(nft_output==1))
-                                class_,x1, y1, x2, y2,conf_ = parse_annotation(annotation.strip())
-                                update_heatmap(nft_output, x1, y1, x2, y2, row, col, offset_x, offset_y,class_)
-                                print("number of 1s after",np.count_nonzero(nft_output==1))
-                    else:
-                        print(f"Annotation file {annotation_file} does not exist, skipping.")
-                
-                
-                
-                
-                print("finishing NFT PREDICTION","#########",sep="\n")
-                print("MFT shape is",nft_output.shape,small_nft_output.shape,np.count_nonzero(small_nft_output==1))
-                # exit()
-
                 print("STARTING WMGM PREDICTION","#########",sep="\n")
 
                 for idx, data in enumerate(dataloader):
@@ -510,72 +462,33 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
                         
                         # forward (BrainSeg) :
                         predict = seg_model(inputs)
+                        print(inputs.shape,predict.shape,"img n preds")
                         _, indices = torch.max(predict.data, 1) # indices = 0:Background, 1:WM, 2:GM
                         indices = indices.type(torch.uint8)
                         
                         running_seg =  indices.data.cpu()
                         # print(heatmap_res,batch_size,img_size,stride,"error")
-                        print("tile classifn",row,col,running_seg,running_seg.shape)
-                        # exit()
+                        # print("tile classifn",row,col,running_seg,running_seg.shape)
+                        # exit()                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
                         # For Stride 32 (BrainSeg) :
                         i = (idx // (heatmap_res//batch_size))
                         j = (idx % (heatmap_res//batch_size))
-                        
                         output_class[i,j*batch_size:(j+1)*batch_size] = running_seg
                         
-                print("for this nft output is",row,col,nft_output.shape,small_nft_output.shape,torch.max(running_seg))
+                # print("for this nft output is",row,col,nft_output.shape)
                 print("large roi classifn",row,col,output_class.shape,running_seg.shape)
                 print(np.unique(output_class,return_counts=True))
 
                 larger_roi = np.repeat(np.repeat(output_class,stride,axis=0),stride,axis=1)
                 print("large roi shape",larger_roi.shape,np.unique(larger_roi,return_counts=True))
-
+                # saveBrainSegImage(larger_roi, \
+                #         SAVE_IMG_DIR + "temp" + '.png')
+                # saveBrainSegImage(output_class, \
+                #         SAVE_IMG_DIR + "temp3" + '.png')
                 
-                # calculating the nft for the small ROI
-                new_nft_output = np.zeros((small_nft_output.shape[1], small_nft_output.shape[2]), dtype=int)
-                print("zero arr created")
-                # Set locations for preNFT (class 0) to 1
-                new_nft_output[small_nft_output[0, :, :] == 1] = 1
 
-                # Set locations for iNFT (class 1) to 2
-                new_nft_output[small_nft_output[1, :, :] == 1] = 2
-
-                # Now result_array contains 1 for preNFT locations and 2 for iNFT locations
-                # print(new_nft_output)
-                # unique_elements, counts = np.unique(new_nft_output, return_counts=True)
-                print("locations added")
-                PreNFTlabels, PreNFTnew_mask, PreNFTnum_labels,PreNFTlabeled_mask = count_blobs_vizz(new_nft_output,size_threshold=1,which_label=0)
-                counts, bg, wm, gm, unknowns = classify_blobs(PreNFTlabeled_mask, larger_roi)
-                print("PreNFT ",PreNFTlabels,PreNFTnum_labels)                
-                if len(PreNFTlabels)>0:
-                    print(print("PreNFT found",len(PreNFTlabels)))
-                    final_prenft_count +=len(PreNFTlabels)
-
-
-                iNFTlabels, iNFTnew_mask, iNFTnum_labels,iNFTlabeled_mask = count_blobs_vizz(new_nft_output,size_threshold=1,which_label=1)
-                counts, bg, wm, gm, unknowns = classify_blobs(iNFTlabeled_mask, larger_roi)
-                print("iNFT",iNFTlabels,iNFTnum_labels,counts, bg, wm, gm, unknowns )
-                if len(iNFTlabels)>1:
-                    print(print("iNFT found",len(iNFTlabels)))
-                    final_inft_count+=len(iNFTlabels)
-                exit()
-
-                if np.max(output_class)==0:
-                    final_prenft_count_bg += final_prenft_count
-                    final_inft_count_bg += final_inft_count
-                    
-                elif np.max(output_class)==1:
-                    final_prenft_count_wm += final_prenft_count
-                    final_inft_count_wm += final_inft_count
-
-                elif np.max(output_class)==2:
-                    final_prenft_count_gm +=final_prenft_count
-                    final_inft_count_gm += final_inft_count
-                else:
-                    print("unknown class")
-                # print(final_prenft_count,final_inft_count,type(final_inft_count),data_nftcounts_dict)
-                # exit()
-                                
+                exit() 
+               
                 print(output_class,"row",row,col,output_class.shape)
                 seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
                 # exit()
@@ -589,25 +502,13 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
                 # plaque_output[2, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = caa
 
                 seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
-                # break
+                
 
         # # Saving Confidence=[0,1] for Plaque Detection
         # np.save(SAVE_PLAQ_DIR+filename, plaque_output)
-        data_nftcounts_dict['WSI_NAME'].append(filename)
-        data_nftcounts_dict['prenft_count_wm'].append(final_prenft_count_wm)
-        data_nftcounts_dict['prenft_count_gm'].append(final_prenft_count_gm)
-        data_nftcounts_dict['prenft_count_bg'].append(final_prenft_count_bg)
-        data_nftcounts_dict['prenft_count_total'].append(final_prenft_count_wm+final_prenft_count_gm)
-        data_nftcounts_dict['inft_count_wm'].append(final_inft_count_wm)
-        data_nftcounts_dict['inft_count_gm'].append(final_inft_count_gm)
-        data_nftcounts_dict['inft_count_bg'].append(final_inft_count_bg)
-        data_nftcounts_dict['inft_count_total'].append(final_inft_count_wm+final_inft_count_gm)
-
-        df =pd.DataFrame(data_nftcounts_dict)
-        df.to_csv("/cache/Shivam/BrainSec-py/"+str(IMG_DIR.split("/")[0])+'/vizz_nft_outputs/NFT_scores_ROILevelMaxRuleCorrespondence.csv',index=False) 
-
+        print(final_inft_count,final_prenft_count)
         # # Saving Confidence=[0,1] for NFT Detection
-        np.save("/cache/Shivam/BrainSec-py/"+str(IMG_DIR.split("/")[0])+'/vizz_nft_outputs/'+filename, nft_output)
+        np.save("/cache/Shivam/BrainSec-py/data_ONCE/"+'vizz_nft_outputs/'+filename, nft_output)
         
         # Saving BrainSeg Classification={0,1,2}
         # exit()
@@ -683,13 +584,10 @@ def main():
     MODEL_PLAQ = args.model_plaq        #'models/CNN_model_parameters.pkl'
     SAVE_PLAQ_DIR = args.save_plaq_dir  #'data_1_40/outputs/heatmaps/'
     MODEL_SEG = args.model_seg          #'models/ResNet18_19.pkl'
-    SAVE_IMG_DIR = str(IMG_DIR.split("/")[0])+"/brainseg/images/" #args.save_img_dir    #'data_1_40/brainseg/images/'
-    SAVE_NP_DIR = str(IMG_DIR.split("/")[0])+"/brainseg/numpy/"  #args.save_np_dir      #'data_1_40/brainseg/numpy/'
+    SAVE_IMG_DIR = args.save_img_dir    #'data_1_40/brainseg/images/'
+    SAVE_NP_DIR = args.save_np_dir      #'data_1_40/brainseg/numpy/'
 
-    SAVE_NFT_IMG_DIR = str(IMG_DIR.split("/")[0])+"/outputs/masked_nft/images/" #args.save_img_dir    #'data_1_40/brainseg/images/'
-    SAVE_NFT_NP_DIR = str(IMG_DIR.split("/")[0])+"/outputs/masked_nft/numpy/" 
 
-    exit()
     if not os.path.exists(IMG_DIR):
         print("Tiled image folder does not exist, script should stop now")
     elif not os.path.exists(MODEL_PLAQ):
@@ -703,10 +601,6 @@ def main():
             os.makedirs(SAVE_IMG_DIR)
         if not os.path.exists(SAVE_NP_DIR):
             os.makedirs(SAVE_NP_DIR)
-        if not os.path.exists(SAVE_NFT_IMG_DIR):
-            os.makedirs(SAVE_NFT_IMG_DIR)
-        if not os.path.exists(SAVE_NFT_NP_DIR):
-            os.makedirs(SAVE_NFT_NP_DIR)
 
         print("Found tiled image folder... ")
         img_files = os.listdir(IMG_DIR)
@@ -716,7 +610,7 @@ def main():
 
     #----------------------------------------------------------
 
-    inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR,SAVE_NFT_IMG_DIR,SAVE_NFT_NP_DIR)
+    inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR)
     print("____________________________________________")
     print("Segmentation masks and heatmaps generated")
 
