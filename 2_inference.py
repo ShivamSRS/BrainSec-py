@@ -177,7 +177,8 @@ def count_blobs_vizz(mask, size_threshold=1,which_label=0):
     
     return sizes, new_mask, num_labels,labeled_mask
 
-def classify_blobs(labeled_mask) :
+
+def classify_blobs(labeled_mask, seg_area) :
     """
     Classifies each certain plaques according to each
     Segmentation Area and gives each count
@@ -215,9 +216,9 @@ def classify_blobs(labeled_mask) :
             
         plaque_loc = np.where(labeled_mask == label)
         
+        plaque_area = seg_area[plaque_loc]
         
-        
-        indexes, counts = np.unique(plaque_loc, return_counts=True)
+        indexes, counts = np.unique(plaque_area, return_counts=True)
         # print(label,counts)
         class_idx = indexes[np.where(counts == np.amax(counts))]
         
@@ -230,6 +231,7 @@ def classify_blobs(labeled_mask) :
     # exit()
             
     return count_dict, count_dict[0], count_dict[1], count_dict[2], count_dict["uncounted"]
+
 
 
 
@@ -352,7 +354,7 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
         heatmap_res = img_size // stride
         # print(heatmap_res,"heatmao size",row_nums,col_nums)
 
-        def parse_annotation(annotation, stride_large=960):
+        def parse_annotation(annotation, stride_large=1536):
             """
             Parse the annotation string and convert normalized coordinates to pixel values.
             
@@ -443,9 +445,11 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
                 output_class = np.zeros((heatmap_res, heatmap_res), dtype=np.uint8)
 
                 roi_fp = TILE_DIR+'/'+str(row)+'/'+str(col)+'.jpg'
+
+                
                 
                 save_fp = 'results_jc/sample-roi-label.txt'
-                temp_dir="/cache/Shivam/BrainSec-py/"+str(IMG_DIR.split("/")[0])+'/vizz_nft_outputs/{}/{}/{}'.format(filename,row,col)
+                temp_dir="/cache/Shivam/BrainSec-py/"+str(IMG_DIR.split("/")[0])+'/vizz_nft_outputs_stride1536/{}/{}/{}'.format(filename,row,col)
                 print(TILE_DIR,IMG_DIR,temp_dir)
 
                 # exit()
@@ -522,57 +526,62 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
                         j = (idx % (heatmap_res//batch_size))
                         
                         output_class[i,j*batch_size:(j+1)*batch_size] = running_seg
-                        
+                saveBrainSegImage(output_class, \
+                        SAVE_IMG_DIR + filename+'_'+str(row)+'_'+str(col) + '_tempROI2.png')
+                segRA = np.repeat(np.repeat(output_class, 32, axis=0), stride, axis=1)
+                saveBrainSegImage(segRA, \
+                        SAVE_IMG_DIR + filename+'_'+str(row)+'_'+str(col) + '_tempROIExtended2.png')
+                # exit()
                 print("for this nft output is",row,col,nft_output.shape,small_nft_output.shape,torch.max(running_seg))
-                print("large roi classifn",row,col,output_class.shape,running_seg.shape)
-                print(np.unique(output_class,return_counts=True))
+                # print("large roi classifn",row,col,output_class.shape,running_seg.shape)
+                # print(np.unique(output_class,return_counts=True))
 
-                larger_roi = np.repeat(np.repeat(output_class,stride,axis=0),stride,axis=1)
-                print("large roi shape",larger_roi.shape,np.unique(larger_roi,return_counts=True))
+                # larger_roi = np.repeat(np.repeat(output_class,stride,axis=0),stride,axis=1)
+                # print("large roi shape",larger_roi.shape,np.unique(larger_roi,return_counts=True))
 
                 
                 # calculating the nft for the small ROI
-                new_nft_output = np.zeros((small_nft_output.shape[1], small_nft_output.shape[2]), dtype=int)
-                print("zero arr created")
-                # Set locations for preNFT (class 0) to 1
-                new_nft_output[small_nft_output[0, :, :] == 1] = 1
+                # new_nft_output = np.zeros((small_nft_output.shape[1], small_nft_output.shape[2]), dtype=int)
+                # print("zero arr created")
+                # # Set locations for preNFT (class 0) to 1
+                # new_nft_output[small_nft_output[0, :, :] == 1] = 1
 
-                # Set locations for iNFT (class 1) to 2
-                new_nft_output[small_nft_output[1, :, :] == 1] = 2
+                # # Set locations for iNFT (class 1) to 2
+                # new_nft_output[small_nft_output[1, :, :] == 1] = 2
 
                 # Now result_array contains 1 for preNFT locations and 2 for iNFT locations
                 # print(new_nft_output)
                 # unique_elements, counts = np.unique(new_nft_output, return_counts=True)
-                print("locations added")
-                PreNFTlabels, PreNFTnew_mask, PreNFTnum_labels,PreNFTlabeled_mask = count_blobs_vizz(new_nft_output,size_threshold=1,which_label=0)
-                counts, bg, wm, gm, unknowns = classify_blobs(PreNFTlabeled_mask, larger_roi)
-                print("PreNFT ",PreNFTlabels,PreNFTnum_labels)                
-                if len(PreNFTlabels)>0:
-                    print(print("PreNFT found",len(PreNFTlabels)))
-                    final_prenft_count +=len(PreNFTlabels)
+                # print("locations added",small_nft_output.shape)
+                # PreNFTlabels, PreNFTnew_mask, PreNFTnum_labels,PreNFTlabeled_mask = count_blobs_vizz(small_nft_output,size_threshold=1,which_label=0)
+                # # counts, bg, wm, gm, unknowns = classify_blobs(PreNFTlabeled_mask, larger_roi)
+                # print("PreNFT ",PreNFTlabels,PreNFTnum_labels)                
+                # if len(PreNFTlabels)>0:
+                #     print(print("PreNFT found",len(PreNFTlabels)))
+                #     final_prenft_count +=len(PreNFTlabels)
 
 
-                iNFTlabels, iNFTnew_mask, iNFTnum_labels,iNFTlabeled_mask = count_blobs_vizz(new_nft_output,size_threshold=1,which_label=1)
-                counts, bg, wm, gm, unknowns = classify_blobs(iNFTlabeled_mask, larger_roi)
-                print("iNFT",iNFTlabels,iNFTnum_labels,counts, bg, wm, gm, unknowns )
-                if len(iNFTlabels)>1:
-                    print(print("iNFT found",len(iNFTlabels)))
-                    final_inft_count+=len(iNFTlabels)
-                exit()
+                # iNFTlabels, iNFTnew_mask, iNFTnum_labels,iNFTlabeled_mask = count_blobs_vizz(small_nft_output,size_threshold=1,which_label=1)
+                # # counts, bg, wm, gm, unknowns = classify_blobs(iNFTlabeled_mask, larger_roi)
+                # print("iNFT",iNFTlabels,iNFTnum_labels )
+                # if len(iNFTlabels)>1:
+                #     print(print("iNFT found",len(iNFTlabels)))
+                #     final_inft_count+=len(iNFTlabels)
+                # # exit()
 
-                if np.max(output_class)==0:
-                    final_prenft_count_bg += final_prenft_count
-                    final_inft_count_bg += final_inft_count
+                # if np.max(output_class)==0:
+                #     final_prenft_count_bg += final_prenft_count
+                #     final_inft_count_bg += final_inft_count
                     
-                elif np.max(output_class)==1:
-                    final_prenft_count_wm += final_prenft_count
-                    final_inft_count_wm += final_inft_count
+                # elif np.max(output_class)==1:
+                #     final_prenft_count_wm += final_prenft_count
+                #     final_inft_count_wm += final_inft_count
 
-                elif np.max(output_class)==2:
-                    final_prenft_count_gm +=final_prenft_count
-                    final_inft_count_gm += final_inft_count
-                else:
-                    print("unknown class")
+                # elif np.max(output_class)==2:
+                #     final_prenft_count_gm +=final_prenft_count
+                #     final_inft_count_gm += final_inft_count
+                # else:
+                #     print("unknown class")
                 # print(final_prenft_count,final_inft_count,type(final_inft_count),data_nftcounts_dict)
                 # exit()
                                 
@@ -593,21 +602,21 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
 
         # # Saving Confidence=[0,1] for Plaque Detection
         # np.save(SAVE_PLAQ_DIR+filename, plaque_output)
-        data_nftcounts_dict['WSI_NAME'].append(filename)
-        data_nftcounts_dict['prenft_count_wm'].append(final_prenft_count_wm)
-        data_nftcounts_dict['prenft_count_gm'].append(final_prenft_count_gm)
-        data_nftcounts_dict['prenft_count_bg'].append(final_prenft_count_bg)
-        data_nftcounts_dict['prenft_count_total'].append(final_prenft_count_wm+final_prenft_count_gm)
-        data_nftcounts_dict['inft_count_wm'].append(final_inft_count_wm)
-        data_nftcounts_dict['inft_count_gm'].append(final_inft_count_gm)
-        data_nftcounts_dict['inft_count_bg'].append(final_inft_count_bg)
-        data_nftcounts_dict['inft_count_total'].append(final_inft_count_wm+final_inft_count_gm)
+        # data_nftcounts_dict['WSI_NAME'].append(filename)
+        # data_nftcounts_dict['prenft_count_wm'].append(final_prenft_count_wm)
+        # data_nftcounts_dict['prenft_count_gm'].append(final_prenft_count_gm)
+        # data_nftcounts_dict['prenft_count_bg'].append(final_prenft_count_bg)
+        # data_nftcounts_dict['prenft_count_total'].append(final_prenft_count_wm+final_prenft_count_gm)
+        # data_nftcounts_dict['inft_count_wm'].append(final_inft_count_wm)
+        # data_nftcounts_dict['inft_count_gm'].append(final_inft_count_gm)
+        # data_nftcounts_dict['inft_count_bg'].append(final_inft_count_bg)
+        # data_nftcounts_dict['inft_count_total'].append(final_inft_count_wm+final_inft_count_gm)
 
-        df =pd.DataFrame(data_nftcounts_dict)
-        df.to_csv("/cache/Shivam/BrainSec-py/"+str(IMG_DIR.split("/")[0])+'/vizz_nft_outputs/NFT_scores_ROILevelMaxRuleCorrespondence.csv',index=False) 
+        # df =pd.DataFrame(data_nftcounts_dict)
+        # df.to_csv("/cache/Shivam/BrainSec-py/"+str(IMG_DIR.split("/")[0])+'/vizz_nft_outputs_stride1536_2/NFT_scores_ROILevelMaxRuleCorrespondence2.csv',index=False) 
 
         # # Saving Confidence=[0,1] for NFT Detection
-        np.save("/cache/Shivam/BrainSec-py/"+str(IMG_DIR.split("/")[0])+'/vizz_nft_outputs/'+filename, nft_output)
+        np.save("/cache/Shivam/BrainSec-py/"+str(IMG_DIR.split("/")[0])+'/vizz_nft_outputs_stride1536_2/'+filename, nft_output)
         
         # Saving BrainSeg Classification={0,1,2}
         # exit()
@@ -689,7 +698,7 @@ def main():
     SAVE_NFT_IMG_DIR = str(IMG_DIR.split("/")[0])+"/outputs/masked_nft/images/" #args.save_img_dir    #'data_1_40/brainseg/images/'
     SAVE_NFT_NP_DIR = str(IMG_DIR.split("/")[0])+"/outputs/masked_nft/numpy/" 
 
-    exit()
+    
     if not os.path.exists(IMG_DIR):
         print("Tiled image folder does not exist, script should stop now")
     elif not os.path.exists(MODEL_PLAQ):
@@ -716,6 +725,18 @@ def main():
 
     #----------------------------------------------------------
 
+    # nft_output = np.load("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/vizz_nft_outputs/1-102-Temporal_AT8.czi.npy")
+    # new_nft_output = np.zeros((nft_output.shape[1], nft_output.shape[2]), dtype=int)
+    # print("zero arr created")
+    # # Set locations for preNFT (class 0) to 1
+    # new_nft_output[nft_output[0, :, :] == 1] = 1
+
+    # # Set locations for iNFT (class 1) to 2
+    # new_nft_output[nft_output[1, :, :] == 1] = 2
+    
+    # print( count_blobs_vizz(new_nft_output,size_threshold=1,which_label=1))
+    # print( count_blobs_vizz(new_nft_output,size_threshold=1,which_label=2))
+    # exit()
     inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR,SAVE_NFT_IMG_DIR,SAVE_NFT_NP_DIR)
     print("____________________________________________")
     print("Segmentation masks and heatmaps generated")

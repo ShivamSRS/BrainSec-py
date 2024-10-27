@@ -31,7 +31,7 @@ def grabCZI(path, verbose = False):
         print(img)
     
     img = np.array(img, dtype = np.uint8)
-    
+    print(img.shape,"org shape")
     scenes = img.shape[0]
     time = img.shape[1]
     height = img.shape[2]
@@ -74,7 +74,8 @@ def tile(WSI_DIR, SAVE_DIR, NORMALIZE):
     # wsi = [pathname.split('/')[-1] for pathname in glob.glob(WSI_DIR+"*.svs")]
     wsi = [pathname.split('/')[-1] for pathname in glob.glob(WSI_DIR+"*.czi")]
     imagenames = sorted(wsi)
-    print("##",wsi)
+    print("##",wsi,imagenames)
+    # exit()
     normalizer = normalize.Reinhard()
     if NORMALIZE:
         ref_imagename = imagenames[0]
@@ -121,14 +122,23 @@ def tile(WSI_DIR, SAVE_DIR, NORMALIZE):
     for imagename in tqdm(imagenames[:]):
         start = time.time()
         print("dnsjdnjcndjcn",imagename)
-        if imagename=='1-154-Temporal_4G8.czi' or imagename=='1-154-Temporal_AT8.czi':# or imagename=='1-102-Temporal_4G8.czi' or imagename=='1-102-Temporal_AT8.czi'  :
+        if imagename=='1-154-Temporal_4G8.czi' or imagename=='1-154-Temporal_AT8.czi' or imagename=='1-102-Temporal_4G8.czi' or imagename=='1-102-Temporal_AT8.czi' or imagename=='1-271-Temporal_4G8.czi' or imagename=='1-271-Temporal_AT8.czi'  :
+            continue
+
+        if imagename=='1-209-Temporal_AT8.czi' or imagename=='1-225-Temporal_AT8.czi' or imagename=='1-254-Temporal_AT8 (uploadable).czi'or imagename=='1-254-Temporal_AT8.czi' :
+            continue
+        if imagename=='1-290-Temporal_AT8.czi' or imagename=='1-297-Temporal_AT8.czi' or imagename=='1-343-Temporal_AT8.czi' or imagename=='1-466-Temporal_AT8.czi' or imagename=='1-473-Temporal_AT8.czi' :
             continue
         if '.svs' == imagename[-4:]:
             print(imagename,"sd")
             vips_img = Vips.Image.new_from_file(WSI_DIR + imagename, level=0)
         else:
             print(imagename,"aad")
-            vips_img = grabCZI(WSI_DIR + imagename)
+            try:
+                vips_img = grabCZI(WSI_DIR + imagename)
+            except:
+                continue
+
         print("____________________________________________")
         print("Loaded Image: " + WSI_DIR + imagename)
         print("Before Width x Height: ", vips_img.width, "x", vips_img.height)

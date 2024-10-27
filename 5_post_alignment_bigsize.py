@@ -17,109 +17,6 @@ from tqdm import tqdm
 from PIL import Image
 import argparse
 
-# Example shapes (adjust based on actual data)
-# Assuming brainseg is already defined with its shape
-brainseg = np.load("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/brainseg/numpy1-102-Temporal_AT8.czi.npy")#np.load("/cache/Shivam/BrainSec-py/data_ONCE/brainseg/numpy/1-102-Temporal_AT8.czi.npy")
-nft_output = np.load("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/vizz_nft_outputs/1-102-Temporal_AT8.czi.npy")
-print(np.unique(nft_output),nft_output.shape,nft_output[0].shape,nft_output[0][0][1])
-
-preNFT_indices = np.argwhere(nft_output[0, :, :] == 1)
-
-# Finding the indices where class 1 (iNFT) is 1
-iNFT_indices = np.argwhere(nft_output[1, :, :] == 1)
-
-print("Locations of preNFT (Class 0):", preNFT_indices,len(preNFT_indices))
-print("Locations of iNFT (Class 1):", iNFT_indices,len(iNFT_indices))
-# Check where preNFT and iNFT overlap
-overlap_indices = np.argwhere((nft_output[0, :, :] == 1) & (nft_output[1, :, :] == 1))
-
-print("Number of overlapping indices (both preNFT and iNFT):", len(overlap_indices))
-# exit()
-new_nft_output = np.zeros((nft_output.shape[1], nft_output.shape[2]), dtype=int)
-
-# Set locations for preNFT (class 0) to 1
-new_nft_output[nft_output[0, :, :] == 1] = 1
-
-# Set locations for iNFT (class 1) to 2
-new_nft_output[nft_output[1, :, :] == 1] = 2
-
-# Now result_array contains 1 for preNFT locations and 2 for iNFT locations
-# print(new_nft_output)
-unique_elements, counts = np.unique(new_nft_output, return_counts=True)
-
-# Print out each unique element with its count
-for element, count in zip(unique_elements, counts):
-    print(f"Element {element}: {count} occurrences")
-# exit()
-# Check the shapes to ensure they are correct
-print(f"Original BrainSeg Output Shape: {brainseg.shape}")
-print(f"Original NFT Output Shape: {new_nft_output.shape}")
-# Check the number of nonzero values before resampling
-nonzero_before_resampling = np.count_nonzero(new_nft_output)
-
-print(f"Number of nonzero elements in NFT output before resampling: {nonzero_before_resampling}")
-print(f"Range of classes before resampling: {np.unique(new_nft_output)}")
-# exit()
-# Resample nft_output to match brainseg resolution
-nft_resampled = np.zeros(( brainseg.shape[0], brainseg.shape[1]), dtype=np.uint8)
-
-# Loop over the classes and resample
-nft_resampled = cv2.resize(new_nft_output, (brainseg.shape[1], brainseg.shape[0]), interpolation=cv2.INTER_NEAREST)
-
-# Now nft_resampled has the shape (2, 816, 816)
-print(f"Resampled NFT Output Shape: {nft_resampled.shape}")
-
-# Check the number of nonzero values after resampling
-nonzero_after_resampling = np.count_nonzero(nft_resampled)
-print(f"Number of nonzero elements in NFT output after resampling: {nonzero_after_resampling}")
-print(f"Range of classes after resampling: {np.unique(nft_resampled)}")
-unique_elements, counts = np.unique(nft_resampled, return_counts=True)
-
-# Print out each unique element with its count
-for element, count in zip(unique_elements, counts):
-    print(f"Element {element}: {count} occurrences")
-
-
-# Initialize dictionaries to store counts for before and after resampling
-nonzero_counts_before = {
-    0: 0,  # For brainseg == 0
-    1: 0,  # For brainseg == 1
-    2: 0,  # For brainseg == 2
-}
-
-nonzero_counts_after = {
-    0: 0,  # For brainseg == 0
-    1: 0,  # For brainseg == 1
-    2: 0,  # For brainseg == 2
-}
-
-# Assuming brainseg and new_nft_output are defined and have the appropriate shapes
-# new_nft_output.shape is (1824, 1824), brainseg.shape is (816, 816)
-
-# Resample the new_nft_output to match the shape of brainseg
-nft_resampled = cv2.resize(new_nft_output, (brainseg.shape[1], brainseg.shape[0]), interpolation=cv2.INTER_NEAREST)
-
-# Count non-zero (non-background) values in the original new_nft_output (before resampling)
-for value in [0, 1, 2]:
-    nonzero_counts_before[value] = np.count_nonzero(new_nft_output == value)
-
-# Count non-zero (non-background) values in the resampled nft_resampled (after resampling)
-for value in [0, 1, 2]:
-    nonzero_counts_after[value] = np.count_nonzero(nft_resampled == value)
-
-# Display the non-zero counts grouped by brainseg values for both before and after resampling
-for value in [0, 1, 2]:
-    print(f"Counts in new_nft_output before resampling where value == {value}: {nonzero_counts_before[value]}")
-    print(f"Counts in nft_resampled after resampling where value == {value}: {nonzero_counts_after[value]}")
-    print("-" * 30)
-
-# Optionally save the resampled NFT output back to a new file
-np.save('nft_resampled.npy', nft_resampled)
-np.save('brainseg_output.npy', brainseg)
-
-print("Resampling complete. Files saved as 'nft_resampled.npy' and 'brainseg_output.npy'")
-# exit()
-
 def saveBrainSegImage(nums, save_dir) :
     """
     Converts 2D array with {0,1,2} into RGB
@@ -131,7 +28,7 @@ def saveBrainSegImage(nums, save_dir) :
        save_dir: string indicating save location
     """ 
     # print(nums,nums.shape)
-    unique_values, counts = np.unique(nums, return_counts=True)
+    # unique_values, counts = np.unique(nums, return_counts=True)
 
     # Display the results
     # for value, count in zip(unique_values, counts):
@@ -146,7 +43,8 @@ def saveBrainSegImage(nums, save_dir) :
     idx_2 = np.where(nums[:,:,0] == 2)  # Index of label 2 (GM)
     print("idx1",idx_1,"idx2",idx_2,"lengths",len(idx_1[0]),len(idx_1[1]),len(idx_2[0]),len(idx_2[1]),len(idx_0[0]),len(idx_0[1]),sep="\n\n\n\n")
     unique_values, counts = np.unique(nums, return_counts=True)
-
+    WM_cnt = len(idx_1[0])
+    GM_cnt = len(idx_2[0])
     # Display the results
     # for value, count in zip(unique_values, counts):
     #     print(f"Value: {value}, Count: {count}")
@@ -165,7 +63,14 @@ def saveBrainSegImage(nums, save_dir) :
     save_img.save(save_dir)
     
     print("Saved at: " + save_dir)
-    return nums
+    return nums,WM_cnt,GM_cnt
+
+
+# Example shapes (adjust based on actual data)
+# Assuming brainseg is already defined with its shape
+
+import numpy as np
+
 
 def classify_blobs(labeled_mask, seg_area) :
     """
@@ -196,7 +101,7 @@ def classify_blobs(labeled_mask, seg_area) :
     
     # 0: Background, 1: WM, 2: GM
     count_dict = {0: 0, 1: 0, 2: 0, "uncounted": 0}
-    print("oinside classify nlons",np.unique(labeled_mask),len(np.unique(labeled_mask)))
+    # print("oinside classify nlons",np.unique(labeled_mask),len(np.unique(labeled_mask)))
     # Loop over unique components
     for label in np.unique(labeled_mask) :
         
@@ -234,7 +139,7 @@ def count_blobs_vizz(mask, size_threshold=1,which_label=0):
     new_mask = np.zeros(mask.shape, dtype='uint8')
     labeled_mask = np.zeros(mask.shape, dtype='uint16')
     sizes = []
-    print(np.unique(mask,return_counts=True))
+    # print(np.unique(mask,return_counts=True))
     
     
     for label in tqdm(np.unique(labels)):
@@ -268,55 +173,43 @@ def count_blobs_vizz(mask, size_threshold=1,which_label=0):
     
     return sizes, new_mask, num_labels,labeled_mask 
 
-sizes, new_mask, num_labels,labeled_mask = count_blobs_vizz(nft_resampled)
-print(len(sizes),new_mask, num_labels)
-print(np.unique(nft_resampled))
-print(labeled_mask)
-def color_mask_by_label(maskArray,color):
+import numpy as np
+
+def color_mask_by_label(maskArray, color):
     """
-    Assign different colors to different label values in a mask array.
-    
+    Assign a single color to all non-zero label values in a mask array,
+    based on the value of 'color' (which can be either 0 or 1).
+
     Parameters:
-        maskArray: 2D array with label values (e.g., 0 for background, 1, 2, etc. for different regions).
-    
+        maskArray: 2D NumPy array with label values (e.g., 0 for background, 1, 2, etc. for different regions).
+        color: Integer value (0 or 1) determining which color to use.
+               - If color == 0, use red ([255, 0, 0]).
+               - If color == 1, use green ([0, 255, 0]).
+
     Returns:
-        RGB array with different colors assigned based on label values.
+        rgb_maskArray: 3D RGB NumPy array with the specified color assigned to all non-zero labels.
     """
-    maskArray_3D = np.repeat(maskArray[:, :, np.newaxis], 3, axis=2)
+    # Define the color mapping based on the value of 'color'
+    if color == 1:
+        rgb_color = np.array([255, 0, 0], dtype=np.uint8)  # Red
+    elif color == 2:
+        rgb_color = np.array([0, 255, 0], dtype=np.uint8)  # Green
+    else:
+        raise ValueError("Invalid color value. 'color' must be 1 or 2.")
     
-    # Create an empty RGB array (3 channels for RGB)
-    rgb_maskArray = np.zeros_like(maskArray_3D, dtype=np.uint8)
+    # Create an empty RGB array (height x width x 3)
+    rgb_maskArray = np.zeros((*maskArray.shape, 3), dtype=np.uint8)
     
-    # Define colors for different labels
-    label_colors = {
-        0: [0, 0, 0],       # Black for background (label 0)
-        1: [255, 0, 0],     # Red for label 1
-        2: [0, 255, 0],     # Green for label 2
-        3: [0, 0, 255],     # Blue for label 3
-        4: [255, 255, 0],   # Yellow for label 4
-        # Add more label-color mappings as needed
-    }
-    color = label_colors[color]
-    # Assign colors to each label in the maskArray
+    # Create a boolean mask where maskArray is not zero
+    non_zero_mask = maskArray != 0
     
-    for label in np.unique(maskArray) :
-
-        # For label 0, leave as black color (BG)
-        if label == 0:
-            continue
-        
-        idx = np.where(maskArray_3D[:,:,0] == label)
-        # rgb_maskArray[maskArray == label] = color 
-
-        rgb_maskArray[idx[0], idx[1], 0] = color[0]  # Red channel
-        rgb_maskArray[idx[0], idx[1], 1] = color[1]  # Green channel
-        rgb_maskArray[idx[0], idx[1], 2] = color[2]  # Blue channel
+    # Assign the specified color to all positions where the mask is non-zero
+    rgb_maskArray[non_zero_mask] = rgb_color  # Vectorized assignment
     
-    # rgb_maskArray = hsv2rgb(maskArray)
-    # rgb_maskArray = rgb_maskArray * 255
-    
+    print(f"Colored array with color: {rgb_color.tolist()}")
     return rgb_maskArray
 
+    
 def saveUniqueMaskImage(maskArray, save_dir) :
     '''
     Plots post-processed detected 
@@ -383,7 +276,7 @@ def apply_transparency(rgb_maskArray):
     
     return rgba_maskArray
 
-def overlay_images_with_transparency(nums, mask1, mask2, num_dilations=3, dilation_kernel_size=5, save_path="/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft/"):
+def overlay_images_with_transparency(nums, mask1, mask2,base_filename, num_dilations=3, dilation_kernel_size=5, save_path="/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft_stride1536_2/"):
     """
     Overlay two mask arrays (mask1 and mask2) on a third image (nums) with transparency for black pixels.
     
@@ -398,39 +291,41 @@ def overlay_images_with_transparency(nums, mask1, mask2, num_dilations=3, dilati
         Blended image with transparent heatmap overlay from both masks.
     """
     # Apply dilation to both heatmaps to emphasize small regions
-    base_filename = "1-102"
+    base_filename = base_filename
     kernel = np.ones((dilation_kernel_size, dilation_kernel_size), np.uint8)
     dilated_mask1 = cv2.dilate(mask1.astype(np.uint8), kernel, iterations=num_dilations)
     dilated_mask2 = cv2.dilate(mask2.astype(np.uint8), kernel, iterations=num_dilations)
-    # Save dilated_mask1 as {filename}_prenft.png
+    print("dilated both masks, shapes are",dilated_mask1.shape,dilated_mask2.shape)
+    # Save dilated_mask1 as {filename}_ift.png
+    inft_filename = save_path+f"{base_filename}_inft.png"
+    Image.fromarray(dilated_mask1).save(inft_filename)
+    print(f"Saved {inft_filename}")
+    
+    # Save dilated_mask2 as {filename}_prenft.png
     prenft_filename = save_path+f"{base_filename}_prenft.png"
-    Image.fromarray(dilated_mask1).save(prenft_filename)
+    Image.fromarray(dilated_mask2).save(prenft_filename)
     print(f"Saved {prenft_filename}")
     
-    # Save dilated_mask2 as {filename}_nft.png
-    nft_filename = save_path+f"{base_filename}_nft.png"
-    Image.fromarray(dilated_mask2).save(nft_filename)
-    print(f"Saved {nft_filename}")
-    return dilated_mask2
     # exit()
 
     
     # Apply transparency to the dilated heatmaps, making black pixels transparent
     rgba_mask1 = apply_transparency(dilated_mask1)
     rgba_mask2 = apply_transparency(dilated_mask2)
+    print("both makss made transparent, shapes are",rgba_mask1.shape,rgba_mask2.shape)
     
     # Combine both masks by adding them up (if they overlap, their transparency will also overlap)
     combined_rgba_mask = np.maximum(rgba_mask1, rgba_mask2)
-    
+    print("Shape of combined_rgba mask is",combined_rgba_mask.shape)
     # Convert nums to a 4-channel RGBA image by adding an opaque alpha channel
     nums_rgba = np.dstack((nums, np.full((nums.shape[0], nums.shape[1]), 255, dtype=np.uint8)))
-    
+    print("Stacking of channels done, nums_rgba shape is",nums_rgba.shape)
     # Overlay the combined transparent heatmap on top of the nums image
     overlay = np.where(combined_rgba_mask[:, :, 3:] == 255, combined_rgba_mask, nums_rgba)
-    
+    print("overlay done")
     # Convert the overlay to a PIL Image and save it
     overlay_image = Image.fromarray(overlay.astype(np.uint8), 'RGBA')
-    overlay_image.save(save_path+f"{base_filename}_blendedimg_stride32.png")
+    overlay_image.save(save_path+f"{base_filename}_blendedimg_stride1536_nooverlap.png")
     
     print(f"Image saved at {save_path}")
     return overlay
@@ -441,100 +336,156 @@ def overlay_images_with_transparency(nums, mask1, mask2, num_dilations=3, dilati
 # Overlay the images with transparency for black pixels
 
 
-def saveJointImage(masks, save_dir,seg):
-    nums = saveBrainSegImage(seg,save_dir)
+def saveJointImage(masks, save_dir,seg,base_filename):
+    nums,WM_cnt,GM_cnt = saveBrainSegImage(seg,save_dir)
     
     # print( np.unique(maskArray, return_counts=True))
     # exit()
 
     # Color both masks based on their labels
-    colored_mask1 = color_mask_by_label(masks[0],1)
-    colored_mask2 = color_mask_by_label(masks[1],2)
+    colored_mask1 = color_mask_by_label(masks[0],1)#iNFTs
+    colored_mask2 = color_mask_by_label(masks[1],2)#preNFTs
     
     # Overlay the two colored masks with transparency for black pixels onto the segmented brain image
-    blended_image = overlay_images_with_transparency(nums, colored_mask1, colored_mask2, num_dilations=3, dilation_kernel_size=5)
+    blended_image = overlay_images_with_transparency(nums, colored_mask1, colored_mask2,base_filename, num_dilations=3, dilation_kernel_size=5)
     
-    return blended_image
+    return blended_image,WM_cnt,GM_cnt
 
+
+nft_npy_output_folder  = os.listdir("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/vizz_nft_outputs_stride1536_2")
+nft_npy_output_folder = [ i for i in nft_npy_output_folder if i[-3:]=="npy" ]
 
 # To create CSV containing WSI names for
 # plaque counting at different regions
-# file = pd.DataFrame({"WSI_ID": filenames})
-# file.to_csv(CSV_FILE, index=False)
-# print('Index CSV:', CSV_FILE)
-CSV_FILE ="/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/NFTscore/WSI_CERAD_AREA.csv"
+CSV_FILE ="/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/NFTscore/NFT_Density_stride1536_2vizz.csv"
+file = pd.DataFrame({"WSI_ID": nft_npy_output_folder})
+file.to_csv(CSV_FILE, index=False)
+print('Index CSV:', CSV_FILE)
+
 # Using existing CSV
 file = pd.read_csv(CSV_FILE)
-filenames = list(file['WSI_ID'])
-img_class = ['preNFT', 'iNFT']
+# filenames = list(file['WSI_ID'])
+
+#imp next comment
+img_class = ['iNFT','preNFT']
+#switched this to iNFT and preNFT because whichlabel arg of count_blobs masks whatever label we pass to it, so instead of preNFT it will count iNFT at index=0 and viceversaa for index 1
 
 # two hyperparameters (For Plaque-Counting)
 # confidence_thresholds = [0.1, 0.95, 0.9]
 # pixel_thresholds = [100, 1, 200]
 
 new_file = file
-mask = []
-for index in [0,1]:
-    preds = np.zeros(len(file))
-    # confidence_threshold = confidence_thresholds[index]
-    # pixel_threshold = pixel_thresholds[index]
+new_file['WM_pixel_count']=0
+new_file['GM_pixel_count']=0
 
-    bg = np.zeros(len(file))
-    wm = np.zeros(len(file))
-    gm = np.zeros(len(file))
-    unknowns = np.zeros(len(file))
-
-
-
-    try:
-        heatmap_path = HEATMAP_DIR+'new_WSI_heatmap_{}.npy'.format(WSIname)
-        h = np.load(heatmap_path)
-
-    except:
-        # heatmap_path = HEATMAP_DIR+'{}.npy'.format(WSIname)
-        # h = np.load(heatmap_path)
-        
-        seg = np.load("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/brainseg/numpy1-102-Temporal_AT8.czi.npy")
-
-    # mask = h[index] > confidence_threshold
-    # mask = mask.astype(np.float32)
-
-    # kernel = cv2.getStructuringElement(cv2.MORPH_CROSS,(5,5))
-
-    # # Apply morphological closing, then opening operations 
-    # opening = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    # closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel)
-
-    #for sina pipeline this needs to be just index==0
-    print(index)
-    labels, new_mask, num_labels,labeled_mask = count_blobs_vizz(new_nft_output,size_threshold=1,which_label=index+1)
-    # counts, bg, wm, gm, unknowns = classify_blobs(labeled_mask, seg)
-    # print(new_mask.shape,np.unique(new_mask,return_counts=True),num_labels,counts, bg, wm, gm, unknowns)
-    # continue
-
-    # print(img_class,index,counts, bg, wm, gm, unknowns)
+for idx,(filepath_nft,filepath_brainseg) in enumerate(zip(nft_npy_output_folder,os.listdir("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/brainseg/numpy"))):
+    base_filename = filepath_nft[:5]
+    # if base_filename!="1-573":
+    #     continue
+    filepath_brainseg = os.path.join("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/brainseg/numpy",filepath_brainseg)
+    filepath_nft = os.path.join("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/vizz_nft_outputs_stride1536_2",filepath_nft)
+    seg = np.load(filepath_brainseg)
+    print("Paths",filepath_brainseg,filepath_nft)
+    print(seg.shape)
     # exit()
-    save_img = "/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft/images/"+img_class[index] + "_NFT.png"
-    save_np = "/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft/numpy/"+  img_class[index] + "_NFT.npy"
-    np.save(save_np, labeled_mask)
-    mask.append(labeled_mask)
-    # saveUniqueMaskImage(labeled_mask, save_img)# To show Colored Result
-    preds = len(labels)
-    
-    # print(confidence_threshold, pixel_threshold)
+    nft_output = np.load(filepath_nft)
+    print("NFT output shape",nft_output.shape)
+    print(nft_output.shape,nft_output[0].shape,nft_output[0][0][1])
 
-    # new_file['CNN_{}_count'.format(img_class[index])] = preds
-    # new_file['BG_{}_count'.format(img_class[index])] = bg
-    # new_file['GM_{}_count'.format(img_class[index])] = gm
-    # new_file['WM_{}_count'.format(img_class[index])] = wm
-    # new_file['{}_no-count'.format(img_class[index])] = unknowns
-saveJointImage(mask, save_img,seg)
+    preNFT_indices = np.argwhere(nft_output[0, :, :] == 1)
+
+    # Finding the indices where class 1 (iNFT) is 1
+    iNFT_indices = np.argwhere(nft_output[1, :, :] == 1)
+
+    print("Locations of preNFT (Class 0):", preNFT_indices,len(preNFT_indices))
+    print("Locations of iNFT (Class 1):", iNFT_indices,len(iNFT_indices))
+    # Check where preNFT and iNFT overlap
+    overlap_indices = np.argwhere((nft_output[0, :, :] == 1) & (nft_output[1, :, :] == 1))
+
+    print("Number of overlapping indices (both preNFT and iNFT):", len(overlap_indices))
+    # exit()
+    new_nft_output = np.zeros((nft_output.shape[1], nft_output.shape[2]), dtype=int)
+
+    # Set locations for preNFT (class 0) to 1
+    new_nft_output[nft_output[0, :, :] == 1] = 1
+
+    # Set locations for iNFT (class 1) to 2
+    new_nft_output[nft_output[1, :, :] == 1] = 2
+
+    # Now result_array contains 1 for preNFT locations and 2 for iNFT locations
+    # print(new_nft_output)
+    stride = 32
+    seg = np.repeat(np.repeat(seg, stride, axis=0), stride, axis=1)
+    mask = []
+    for index in [0,1]:        
+
+        # Now, expanded_outputs has the shape (26112, 26112)
+        print("Brain sec output shape",seg.shape)
+        print("shape of expanded heatmap",seg.shape)  # Should print (26112, 26112)
+            # saveBrainSegImage(expanded_outputs,"tempbrainseg.png")
+
+        # mask = h[index] > confidence_threshold
+        # mask = mask.astype(np.float32)
+
+        # kernel = cv2.getStructuringElement(cv2.MORPH_CROSS,(5,5))
+
+        # # Apply morphological closing, then opening operations 
+        # opening = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        # closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel)
+
+        #for sina pipeline this needs to be just index==0
+        print(index)
+        save_img = "/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft_stride1536_2/images/"+base_filename+"_"+img_class[index] + "_NFT.png"
+        save_np = "/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft_stride1536_2/numpy/"+base_filename+"_" +img_class[index] + "_NFT.npy"
+        
+        labels, new_mask, num_labels,labeled_mask = count_blobs_vizz(new_nft_output,size_threshold=1,which_label=index+1)
+        # labeled_mask = np.load(save_np)
+        counts, bg, wm, gm, unknowns = classify_blobs(labeled_mask, seg)
+        print(new_mask.shape,num_labels,counts, bg, wm, gm, unknowns)
+        # # continue
+
+        
+        np.save(save_np, labeled_mask)
+        mask.append(labeled_mask)
+        print("masks appended")
+        # saveUniqueMaskImage(labeled_mask, save_img)# To show Colored Result
+        preds = len(labels)
+        
+        # print(confidence_threshold, pixel_threshold)
+        
+        
+        new_file.loc[new_file['WSI_ID'] == nft_npy_output_folder[idx], 'CNN_{}_count'.format(img_class[index])] = preds
+        new_file.loc[new_file['WSI_ID'] == nft_npy_output_folder[idx], 'BG_{}_count'.format(img_class[index])] = bg
+        new_file.loc[new_file['WSI_ID'] == nft_npy_output_folder[idx], 'GM_{}_count'.format(img_class[index])] = gm
+        new_file.loc[new_file['WSI_ID'] == nft_npy_output_folder[idx], 'WM_{}_count'.format(img_class[index])] = wm
+        new_file.loc[new_file['WSI_ID'] == nft_npy_output_folder[idx], '{}_no-count'.format(img_class[index])] = unknowns
+
+    blended_image,WM_cnt,GM_cnt=saveJointImage(mask, save_img,seg,base_filename)
+    new_file.loc[new_file['WSI_ID'] == nft_npy_output_folder[idx], 'WM_pixel_count']=WM_cnt
+    new_file.loc[new_file['WSI_ID'] == nft_npy_output_folder[idx], 'GM_pixel_count']=GM_cnt
+
+    new_file.to_csv("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft_stride1536_2/"+'vizcarra_nft_bigWMGMsize.csv', index=False)
+    print("CSV file saved at","/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft_stride1536_2/"+'vizcarra_nft_bigWMGMsize.csv')
 #         saveMask(img_mask, save_img)  # To show Classification Result
     
 
     
-# new_file.to_csv("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft/"+'vizcarra_nft2.csv', index=False)
+new_file.to_csv("/cache/Shivam/BrainSec-py/data_ONCE_uncorrupted/outputs/masked_nft_stride1536_2/"+'vizcarra_nft_bigWMGMsize.csv', index=False)
 print('CSVs saved ')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -797,4 +748,4 @@ def compare():
     overlay_wsi_set(wsis, model_name, num_dilations = 4)
     # overlay_wsi(z_wsi_arr, z_heatmap_arr,wsi_name)
 
-compare()
+# compare()
