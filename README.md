@@ -73,7 +73,17 @@ Preprocessing script for SVS files (legacy support).
 ### `2_inference_czi.py`
 
 Runs the BrainSec inference model on preprocessed tiles. Saves segmentation outputs as `.npy` files in automatically created folders.
-
+```bash
+python 2_inference_czi.py \
+  --img_dir /cache/braindata_repo/norm_tiles/ \
+  --model_plaq /path/to/CNN_model_parameters.pkl \
+  --model_seg  /path/to/ResNet18_19.pkl \
+  --save_plaq_dir /cache/braindata_repo/outputs/heatmaps/ \
+  --save_img_dir  /cache/braindata_repo/brainseg/images/ \
+  --save_np_dir   /cache/braindata_repo/brainseg/numpy/ \
+  --plaquebox_root /cache/plaquebox-paper \
+  --normalization  /cache/plaquebox-paper/utils/normalization.npy
+```
 -----
 
 ## 3\. Postprocessing
