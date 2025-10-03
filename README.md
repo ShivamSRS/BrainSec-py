@@ -38,3 +38,66 @@ python3 ./2_inference.py --img_dir 'data/norm_tiles/' --model_plaq 'models/CNN_m
 
 python3 ./3_postprocessing.py --data_dir 'data/'
 ```
+
+
+# BrainSec Processing Pipeline Scripts for CZI image inference
+
+This repository includes multiple Python scripts that implement different stages of the BrainSec pipeline for whole slide image (WSI) segmentation. Depending on whether your input data is in CZI or SVS format, different preprocessing and postprocessing scripts are required.
+
+-----
+
+## 1\. Preprocessing
+
+### `1_preprocessing_czi.py`
+
+Preprocessing script for CZI files (new compatibility feature). This script loads `.czi` WSIs, tiles them into smaller image patches, and prepares them for batch inference.
+
+**Example usage:**
+
+```bash
+python 1_preprocessing_czi.py \
+  --input_dir /cache/braindata_repo/wsis/ \
+  --output_dir /cache/braindata_repo/norm_tiles/ \
+  --um_per_px 0.5 \
+  --tile_size 1536
+```
+
+### `1_preprocessing.py`
+
+Preprocessing script for SVS files (legacy support).
+
+-----
+
+## 2\. Inference
+
+### `2_inference_czi.py`
+
+Runs the BrainSec inference model on preprocessed tiles. Saves segmentation outputs as `.npy` files in automatically created folders.
+
+-----
+
+## 3\. Postprocessing
+
+### `3_postprocessing.py`
+
+Legacy postprocessing script for SVS inputs.
+
+### `3_postprocessing_nobraingsegpostprop.py`
+
+Updated postprocessing script for CZI workflows. Drops the BrainSeg-specific postprocessing step to produce more accurate white matter boundaries. Use this instead of `3_postprocessing.py` for CZI data.
+
+-----
+
+## Recommended Workflow
+
+### For CZI data:
+
+1.  Run `1_preprocessing_czi.py`
+2.  Run `2_inference_czi.py`
+3.  Run `3_postprocessing_nobraingsegpostprop.py`
+
+### For SVS data (legacy):
+
+1.  Run `1_preprocessing.py`
+2.  Run `2_inference.py`
+3.  Run `3_postprocessing.py`
