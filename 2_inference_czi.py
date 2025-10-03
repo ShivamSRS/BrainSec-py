@@ -8,7 +8,9 @@ import os
 import glob
 import sys
 # sys.path.append("/cache/plaquebox-paper/utils")
-sys.path.append("/cache/plaquebox-paper/")
+# sys.path.append("/cache/plaquebox-paper/utils")
+# sys.path.append("/cache/plaquebox-paper/")
+
 
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 import torch
@@ -124,11 +126,11 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
     # batch_size = 96 
     # num_workers = 16
     img_size = 1536
-    stride = 32#32#16
+    stride = 16#32#16
     batch_size = 48 
     num_workers = 16
 
-    norm = np.load('/cache/plaquebox-paper/utils/normalization.npy', allow_pickle=True).item() # brainseg
+    # norm = np.load('/cache/plaquebox-paper/utils/normalization.npy', allow_pickle=True).item() # brainseg
     normalize = transforms.Normalize(norm['mean'], norm['std'])
 
     to_tensor = transforms.ToTensor()
@@ -310,6 +312,8 @@ def main():
     parser.add_argument("--model_seg", type=str, default='/cache/Shivam/ResNet18_19.pkl', help="Saved model for segmentation")
     parser.add_argument("--save_img_dir", type=str, default='data/brainseg/images/', help="Directory to save image masks")
     parser.add_argument("--save_np_dir", type=str, default='data/brainseg/numpy/', help="Directory to save numpy masks")
+    parser.add_argument("--plaquebox_root", type=str, default=None, help="Path to plaquebox-paper repo; appended to sys.path if set")
+    parser.add_argument("--normalization", type=str, default=None, help="Path to normalization.npy; if unset, will try plaquebox_root/utils/normalization.npy")
 
     args = parser.parse_args()
 
@@ -327,6 +331,21 @@ def main():
     MODEL_SEG = args.model_seg          #'models/ResNet18_19.pkl'
     SAVE_IMG_DIR = args.save_img_dir    #'data_1_40/brainseg/images/'
     SAVE_NP_DIR = args.save_np_dir      #'data_1_40/brainseg/numpy/'
+    # Optionally append plaquebox root to sys.path
+    if args.plaquebox_root:
+        if args.plaquebox_root not in sys.path:
+            sys.path.append(args.plaquebox_root)
+
+    # Resolve normalization path
+    if args.normalization is not None:
+        normalization_path = args.normalization
+    else:
+        # default: <plaquebox_root>/utils/normalization.npy if plaquebox_root is provided
+        if args.plaquebox_root:
+            normalization_path = os.path.join(args.plaquebox_root, "utils", "normalization.npy")
+        else:
+            # Fallback to previous hard-coded path for backward compatibility
+            normalization_path = '/cache/plaquebox-paper/utils/normalization.npy'
 
 
     if not os.path.exists(IMG_DIR):
@@ -357,3 +376,14 @@ def main():
 
 if __name__ == "__main__":
     main()
+"""
+python 2_inference_czi.py \
+  --img_dir /cache/braindata_repo/norm_tiles/ \
+  --model_plaq /path/to/CNN_model_parameters.pkl \
+  --model_seg  /path/to/ResNet18_19.pkl \
+  --save_plaq_dir /cache/braindata_repo/outputs/heatmaps/ \
+  --save_img_dir  /cache/braindata_repo/brainseg/images/ \
+  --save_np_dir   /cache/braindata_repo/brainseg/numpy/ \
+  --plaquebox_root /cache/plaquebox-paper \
+  --normalization  /cache/plaquebox-paper/utils/normalization.npy 
+  """
