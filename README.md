@@ -46,6 +46,7 @@ This repository includes multiple Python scripts that implement different stages
 
 -----
 ## Environment Setup
+Clone this repo and switch to branch "czi_compatibility"
 ```bash
 pip install -r brainsec_requirements.txt
 ```
