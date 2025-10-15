@@ -45,6 +45,10 @@ python3 ./3_postprocessing.py --data_dir 'data/'
 This repository includes multiple Python scripts that implement different stages of the BrainSec pipeline for whole slide image (WSI) segmentation. Depending on whether your input data is in CZI or SVS format, different preprocessing and postprocessing scripts are required.
 
 -----
+## Environment Setup
+```bash
+pip install -r brainsec_requirements.txt
+```
 
 ## 1\. Preprocessing
 
@@ -111,3 +115,58 @@ Updated postprocessing script for CZI workflows. Drops the BrainSeg-specific pos
 1.  Run `1_preprocessing.py`
 2.  Run `2_inference.py`
 3.  Run `3_postprocessing.py`
+
+
+The directory structure like this:
+
+```
+/home/shivam/braindata_repo/
+├── wsis/                # raw input whole slide images (.czi files)
+│   ├── sample1.czi
+│   ├── sample2.czi
+│   └── ...
+│
+├── norm_tiles/          # output of 1_preprocessing_czi.py
+│   ├── sample1.czi/     # each WSI gets its own folder
+│   │   └── 0/           # tiling level directory
+│   │       ├── 0/...
+│   │       ├── 1/...
+│   │       └── ...
+│   ├── sample2.czi/
+│   │   └── 0/...
+│   └── ...
+│
+├── outputs/
+│   └── heatmaps/        # output heatmaps from 2_inference_czi.py
+│       ├── sample1.npy or .png
+│       └── ...
+│
+├── brainseg/
+│   ├── images/          # segmentation result images from inference
+│   │   ├── sample1.png
+│   │   └── ...
+│   └── numpy/           # segmentation result numpy arrays
+│       ├── sample1.npy
+│       └── ...
+│
+└── (used as --data_dir in step 3_postprocessing_nobraingsegpostprop.py)
+```
+
+And separately:
+
+```
+/home/shivam/plaquebox-paper/
+├── utils/
+│   └── normalization.npy
+└── ...
+```
+
+So
+
+* **Input**: `/home/shivam/braindata_repo/wsis/` with `.czi` files.
+* **Step 1 output**: `/home/shivam/braindata_repo/norm_tiles/` with per-WSI tile folders.
+* **Step 2 outputs**: heatmaps (`/outputs/heatmaps/`), brain segmentation images (`/brainseg/images/`), and numpy arrays (`/brainseg/numpy/`).
+* **Step 3**: runs over the whole `/home/shivam/braindata_repo/` directory structure to do counting.
+
+Do you want me to also sketch what the final expected *files* inside `outputs/heatmaps/` and `brainseg/` would look like (naming conventions etc.), based on typical WSI pipelines?
+
