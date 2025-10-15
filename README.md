@@ -60,6 +60,7 @@ git clone https://github.com/keiserlab/plaquebox-paper.git
 │   └── normalization.npy
 └── ...
 ```
+Refer to the directory structure below to see where to keep your WSIs
 
 ## Run an example
 ```bash
@@ -129,7 +130,7 @@ Updated postprocessing script for CZI workflows. Drops the BrainSeg-specific pos
 3.  Run `3_postprocessing.py`
 
 
-The directory structure like this:
+The directory structure is like this:
 
 ```
 /home/shivam/braindata_repo/
@@ -181,5 +182,4 @@ So
 * **Step 2 outputs**: heatmaps (`/outputs/heatmaps/`), brain segmentation images (`/brainseg/images/`), and numpy arrays (`/brainseg/numpy/`).
 * **Step 3**: runs over the whole `/home/shivam/braindata_repo/` directory structure to do counting.
 
-Do you want me to also sketch what the final expected *files* inside `outputs/heatmaps/` and `brainseg/` would look like (naming conventions etc.), based on typical WSI pipelines?
 
