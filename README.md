@@ -50,6 +50,20 @@ This repository includes multiple Python scripts that implement different stages
 pip install -r brainsec_requirements.txt
 ```
 
+And:
+```
+git clone https://github.com/keiserlab/plaquebox-paper.git
+
+/home/shivam/plaquebox-paper/
+├── utils/
+│   └── normalization.npy
+└── ...
+```
+
+## Run an example
+```bash
+bash run_example.sh
+```
 ## 1\. Preprocessing
 
 ### `1_preprocessing_czi.py`
@@ -59,11 +73,8 @@ Preprocessing script for CZI files (new compatibility feature). This script load
 **Example usage:**
 
 ```bash
-python 1_preprocessing_czi.py \
-  --input_dir /cache/braindata_repo/wsis/ \
-  --output_dir /cache/braindata_repo/norm_tiles/ \
-  --um_per_px 0.5 \
-  --tile_size 1536
+python 1_preprocessing_czi.py --path_wsi /home/shivam/braindata_repo/wsis/ --save_dir /home/shivam/braindata_repo/norm_tiles/ 
+
 ```
 
 ### `1_preprocessing.py`
@@ -153,8 +164,9 @@ The directory structure like this:
 ```
 
 And separately:
-
 ```
+git clone https://github.com/keiserlab/plaquebox-paper.git
+
 /home/shivam/plaquebox-paper/
 ├── utils/
 │   └── normalization.npy
