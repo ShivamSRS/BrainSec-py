@@ -156,4 +156,10 @@ python 1_preprocessing_czi.py \
   --um_per_px 0.5 \
   --tile_size 1536
 
+python 1_preprocessing_czi.py \
+  --input_dir /home/shivam/braindata_repo/wsis/ \
+  --output_dir /home/shivam/braindata_repo/norm_tiles/ \
+  --um_per_px 0.5 \
+  --tile_size 1536
+
 """

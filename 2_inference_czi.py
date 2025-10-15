@@ -120,7 +120,7 @@ def saveBrainSegImage(nums, save_dir) :
     save_img.save(save_dir)
     print("Saved at: " + save_dir)
     
-def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR):
+def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR,normalization_path):
     # img_size = 1536
     # stride = 16
     # batch_size = 96 
@@ -131,6 +131,7 @@ def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_
     num_workers = 16
 
     # norm = np.load('/cache/plaquebox-paper/utils/normalization.npy', allow_pickle=True).item() # brainseg
+    norm = np.load(normalization_path, allow_pickle=True).item()
     normalize = transforms.Normalize(norm['mean'], norm['std'])
 
     to_tensor = transforms.ToTensor()
@@ -306,10 +307,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--img_dir", type=str, default='data/norm_tiles/', help="Directory to retrieve the patches for inference")
     # Plaque Detection
-    parser.add_argument("--model_plaq", type=str, default='/cache/Shivam/CNN_model_parameters.pkl', help="Saved model for plaque detection")
+    parser.add_argument("--model_plaq", type=str, default='models/CNN_model_parameters.pkl', help="Saved model for plaque detection")
     parser.add_argument("--save_plaq_dir", type=str, default='data/outputs/heatmaps/', help="Directory to save heatmaps")
     # Brainseg
-    parser.add_argument("--model_seg", type=str, default='/cache/Shivam/ResNet18_19.pkl', help="Saved model for segmentation")
+    parser.add_argument("--model_seg", type=str, default='models/ResNet18_19.pkl', help="Saved model for segmentation")
     parser.add_argument("--save_img_dir", type=str, default='data/brainseg/images/', help="Directory to save image masks")
     parser.add_argument("--save_np_dir", type=str, default='data/brainseg/numpy/', help="Directory to save numpy masks")
     parser.add_argument("--plaquebox_root", type=str, default=None, help="Path to plaquebox-paper repo; appended to sys.path if set")
@@ -370,7 +371,7 @@ def main():
 
     #----------------------------------------------------------
 
-    inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR)
+    inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR,normalization_path)
     print("____________________________________________")
     print("Segmentation masks and heatmaps generated")
 
@@ -386,4 +387,13 @@ python 2_inference_czi.py \
   --save_np_dir   /cache/braindata_repo/brainseg/numpy/ \
   --plaquebox_root /cache/plaquebox-paper \
   --normalization  /cache/plaquebox-paper/utils/normalization.npy 
+
+
+  python 2_inference_czi.py \
+  --img_dir /home/shivam/braindata_repo/norm_tiles/ \
+  --save_plaq_dir /home/shivam/braindata_repo/outputs/heatmaps/ \
+  --save_img_dir  /home/shivam/braindata_repo/brainseg/images/ \
+  --save_np_dir   /home/shivam/braindata_repo/brainseg/numpy/ \
+  --plaquebox_root /home/shivam/plaquebox-paper \
+  --normalization  /home/shivam/plaquebox-paper/utils/normalization.npy 
   """
